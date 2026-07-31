@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>PULL</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#0a0d1c; touch-action:none; overscroll-behavior:none; -webkit-user-select:none; user-select:none; }
+  canvas { display:block; width:100vw; height:100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1,SX=0,SY=0;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;
+  cv.width=W*DPR;cv.height=H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  SX=W/2; SY=H*0.52;
+}
+window.addEventListener('resize',resize);
+
+const BG='#0a0d1c', ROCK='#8d99ae', ROCK_DK='#5c6678', ORE='#ffd66b', ORE_DK='#cfa133';
+const STN='#7ae0ff', STN_DK='#3d8fb0', WELL='#c08cff', INK='#f0f2ff', BAD='#ff6b6b';
+
+let AC=null;
+function beep(f,t=0.08,type='sine',g=0.12){
+  if(!AC) return;
+  try{
+    const o=AC.createOscillator(),v=AC.createGain();
+    o.type=type;o.frequency.value=f;
+    v.gain.setValueAtTime(g,AC.currentTime);
+    v.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+t);
+    o.connect(v);v.connect(AC.destination);o.start();o.stop(AC.currentTime+t);
+  }catch(e){}
+}
+function buzz(ms){ try{ navigator.vibrate&&navigator.vibrate(ms); }catch(e){} }
+
+let state='ready';
+let hp=3, score=0, best=0, time=0, shake=0, spinA=0;
+let objs=[], parts=[], floats=[];
+let spawnT=0;
+let finger=null;
+
+function reset(){
+  hp=3; score=0; time=0; spawnT=1; shake=0;
+  objs.length=0; parts.length=0; floats.length=0;
+}
+function pop(x,y,col,n,sp){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*6.283,s=sp*(0.3+Math.random());
+    parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0.4+Math.random()*0.4,col,r:2+Math.random()*4});
+  }
+}
+function fl(x,y,txt,col){ floats.push({x,y,txt,col,life:1.0}); }
+
+function spawn(){
+  const ramp=Math.min(1,time/90);
+  // random edge point
+  const side=(Math.random()*4)|0;
+  let x,y;
+  if(side===0){ x=Math.random()*W; y=-30; }
+  else if(side===1){ x=W+30; y=Math.random()*H; }
+  else if(side===2){ x=Math.random()*W; y=H+30; }
+  else { x=-30; y=Math.random()*H; }
+  // aim at station with spread
+  let ax=SX-x, ay=SY-y;
+  const m=Math.hypot(ax,ay)||1;
+  const spread=(Math.random()-0.5)*0.9;
+  const ca=Math.cos(spread), sa=Math.sin(spread);
+  const dx=(ax*ca-ay*sa)/m, dy=(ax*sa+ay*ca)/m;
+  const sp=70+Math.random()*70+ramp*70;
+  const ore=Math.random()<0.32;
+  objs.push({
+    x,y, vx:dx*sp, vy:dy*sp,
+    r: ore? 13 : 15+Math.random()*9,
+    type: ore?'ore':'rock',
+    rot:Math.random()*7, rs:(Math.random()-0.5)*3,
+    touched:false, trail:[]
+  });
+}
+
+// ---------- input ----------
+function pos(e){ const t=e.touches?e.touches[0]:(e.changedTouches?e.changedTouches[0]:e); return {x:t.clientX,y:t.clientY}; }
+function down(e){
+  e.preventDefault();
+  if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(err){} }
+  if(state==='ready'){ state='play'; reset(); beep(520,0.1,'triangle'); return; }
+  if(state==='dead'){ state='ready'; return; }
+  finger=pos(e);
+}
+function move(e){ e.preventDefault(); if(finger) finger=pos(e); }
+function up(e){ e.preventDefault(); finger=null; }
+cv.addEventListener('touchstart',down,{passive:false});
+cv.addEventListener('touchmove',move,{passive:false});
+cv.addEventListener('touchend',up,{passive:false});
+cv.addEventListener('mousedown',down);
+cv.addEventListener('mousemove',e=>{ if(finger) move(e); });
+cv.addEventListener('mouseup',up);
+
+// ---------- update ----------
+function update(dt){
+  spinA+=dt;
+  for(const p of parts){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; }
+  parts=parts.filter(p=>p.life>0);
+  for(const f of floats){ f.y-=44*dt; f.life-=dt; }
+  floats=floats.filter(f=>f.life>0);
+  shake=Math.max(0,shake-dt*40);
+
+  if(state!=='play') return;
+  time+=dt;
+
+  spawnT-=dt;
+  if(spawnT<=0){
+    spawn();
+    const ramp=Math.min(1,time/90);
+    spawnT=(1.7-ramp*1.15)*(0.7+Math.random()*0.6);
+  }
+
+  // gravity well
+  for(const o of objs){
+    if(finger){
+      const dx=finger.x-o.x, dy=finger.y-o.y;
+      const d2=dx*dx+dy*dy;
+      const d=Math.sqrt(d2)||1;
+      let a=9.5e6/(d2+3600);
+      a=Math.min(a,2400);
+      o.vx+=dx/d*a*dt;
+      o.vy+=dy/d*a*dt;
+      if(a>120) o.touched=true;
+    }
+    o.x+=o.vx*dt; o.y+=o.vy*dt;
+    o.rot+=o.rs*dt;
+    o.trail.push({x:o.x,y:o.y});
+    if(o.trail.length>9) o.trail.shift();
+  }
+
+  // object-object smashes
+  for(let i=objs.length-1;i>=0;i--){
+    for(let j=i-1;j>=0;j--){
+      const a=objs[i], b=objs[j];
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const rr=a.r+b.r;
+      if(dx*dx+dy*dy<rr*rr){
+        const rel=Math.hypot(a.vx-b.vx, a.vy-b.vy);
+        if(rel>180){
+          const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+          const bothRock = a.type==='rock'&&b.type==='rock';
+          pop(mx,my,bothRock?ROCK:ORE,16,300);
+          if(bothRock){ score+=10; fl(mx,my,'+10 smash',INK); beep(500,0.08,'square',0.1); }
+          else { fl(mx,my,'ore lost',ORE_DK); beep(200,0.1,'sawtooth',0.08); }
+          buzz(10);
+          objs.splice(i,1); objs.splice(j,1);
+          i--;
+          break;
+        } else {
+          // soft bounce
+          const d=Math.hypot(dx,dy)||1, ov=(rr-d)/2;
+          const nx=dx/d, ny=dy/d;
+          a.x-=nx*ov; a.y-=ny*ov; b.x+=nx*ov; b.y+=ny*ov;
+          const tvx=a.vx; a.vx=b.vx; b.vx=tvx;
+          const tvy=a.vy; a.vy=b.vy; b.vy=tvy;
+        }
+      }
+    }
+  }
+
+  // station interactions
+  for(let i=objs.length-1;i>=0;i--){
+    const o=objs[i];
+    const d=Math.hypot(o.x-SX,o.y-SY);
+    if(d<o.r+26){
+      objs.splice(i,1);
+      if(o.type==='ore'){
+        score+=25;
+        fl(SX,SY-50,'+25 ore',ORE);
+        pop(SX,SY,ORE,16,320);
+        beep(760,0.1,'triangle',0.16); buzz(12);
+      } else {
+        hp--;
+        shake=14;
+        fl(SX,SY-50,'hull hit!',BAD);
+        pop(SX,SY,BAD,20,360);
+        beep(130,0.3,'sawtooth',0.18); buzz([30,40,50]);
+        if(hp<=0){
+          state='dead'; best=Math.max(best,score);
+          pop(SX,SY,STN,40,500);
+        }
+      }
+      continue;
+    }
+    // deflected offscreen
+    if(o.x<-80||o.x>W+80||o.y<-80||o.y>H+80){
+      if(o.type==='rock'&&o.touched){ score+=5; fl(Math.max(20,Math.min(W-20,o.x)),Math.max(30,Math.min(H-30,o.y)),'+5 flung',STN); beep(420,0.06,'sine',0.08); }
+      objs.splice(i,1);
+    }
+  }
+}
+
+// ---------- draw ----------
+function draw(){
+  ctx.fillStyle=BG; ctx.fillRect(0,0,W,H);
+
+  ctx.save();
+  if(shake>0) ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
+
+  // stars
+  ctx.fillStyle='rgba(180,190,230,0.25)';
+  for(let i=0;i<46;i++) ctx.fillRect((i*149)%W,(i*83)%H,2,2);
+
+  // station
+  ctx.save();
+  ctx.translate(SX,SY);
+  ctx.rotate(spinA*0.4);
+  ctx.strokeStyle=STN_DK; ctx.lineWidth=4;
+  ctx.beginPath(); ctx.arc(0,0,36,0,7); ctx.stroke();
+  ctx.fillStyle=STN;
+  for(let i=0;i<3;i++){
+    ctx.rotate(Math.PI*2/3);
+    ctx.beginPath(); ctx.roundRect(30,-6,16,12,4); ctx.fill();
+  }
+  ctx.fillStyle=STN;
+  ctx.beginPath(); ctx.arc(0,0,18,0,7); ctx.fill();
+  ctx.fillStyle='#0a2733';
+  ctx.beginPath(); ctx.arc(0,0,9,0,7); ctx.fill();
+  ctx.restore();
+  // hp pips
+  for(let i=0;i<3;i++){
+    ctx.globalAlpha=i<hp?1:0.18;
+    ctx.fillStyle=STN;
+    ctx.beginPath(); ctx.arc(SX-22+i*22, SY+52, 6,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  // objects
+  for(const o of objs){
+    // trail
+    for(let t=0;t<o.trail.length;t++){
+      ctx.globalAlpha=t/o.trail.length*0.30;
+      ctx.fillStyle=o.type==='ore'?ORE:ROCK;
+      ctx.beginPath(); ctx.arc(o.trail[t].x,o.trail[t].y,3,0,7); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    ctx.save();
+    ctx.translate(o.x,o.y); ctx.rotate(o.rot);
+    if(o.type==='ore'){
+      ctx.fillStyle=ORE;
+      ctx.beginPath();
+      for(let i=0;i<6;i++){
+        const a=i/6*Math.PI*2;
+        const rr=o.r*(0.85+((i*7)%3)*0.1);
+        i===0?ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr):ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,0.55)';
+      ctx.beginPath(); ctx.arc(-o.r*0.25,-o.r*0.25,o.r*0.22,0,7); ctx.fill();
+    } else {
+      ctx.fillStyle=ROCK;
+      ctx.beginPath();
+      for(let i=0;i<7;i++){
+        const a=i/7*Math.PI*2;
+        const rr=o.r*(0.8+((i*13)%4)*0.09);
+        i===0?ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr):ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle=ROCK_DK;
+      ctx.beginPath(); ctx.arc(o.r*0.2,o.r*0.1,o.r*0.25,0,7); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // gravity well
+  if(finger && state==='play'){
+    ctx.save();
+    ctx.translate(finger.x,finger.y);
+    for(let i=0;i<3;i++){
+      ctx.rotate(spinA*(1.5+i*0.7)*(i%2?-1:1));
+      ctx.strokeStyle=WELL;
+      ctx.globalAlpha=0.5-i*0.12;
+      ctx.setLineDash([10,14]);
+      ctx.lineWidth=3;
+      ctx.beginPath(); ctx.arc(0,0,26+i*20,0,7); ctx.stroke();
+    }
+    ctx.setLineDash([]); ctx.globalAlpha=1;
+    ctx.fillStyle=WELL;
+    ctx.beginPath(); ctx.arc(0,0,5,0,7); ctx.fill();
+    ctx.restore();
+  }
+
+  // particles & floats
+  for(const p of parts){
+    ctx.globalAlpha=Math.max(0,p.life*2);
+    ctx.fillStyle=p.col;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  ctx.textAlign='center';
+  for(const f of floats){
+    ctx.globalAlpha=Math.min(1,f.life*2);
+    ctx.fillStyle=f.col;
+    ctx.font='800 20px ui-rounded, system-ui, sans-serif';
+    ctx.fillText(f.txt,f.x,f.y);
+  }
+  ctx.globalAlpha=1;
+
+  // HUD
+  ctx.fillStyle=INK;
+  ctx.font='900 44px ui-rounded, system-ui, sans-serif';
+  ctx.fillText(score, W/2, 64);
+
+  if(state==='ready') overlay('PULL','your finger is gravity.\nbend rocks away from the station,\ncurl gold ore into it.\nsmash rocks together for bonus.','tap to play');
+  if(state==='dead') overlay('STATION DOWN','score '+score+'   best '+best,'tap to retry');
+  ctx.restore();
+}
+function overlay(title,body,cta){
+  ctx.fillStyle='rgba(6,8,18,0.74)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.fillStyle=INK;
+  ctx.font='900 62px ui-rounded, system-ui, sans-serif';
+  ctx.fillText(title,W/2,H*0.30);
+  ctx.font='600 18px ui-rounded, system-ui, sans-serif';
+  const lines=body.split('\n');
+  lines.forEach((l,i)=>ctx.fillText(l,W/2,H*0.30+42+i*25));
+  ctx.fillStyle=WELL;
+  ctx.font='900 23px ui-rounded, system-ui, sans-serif';
+  ctx.fillText(cta,W/2,H*0.30+42+lines.length*25+44+Math.sin(performance.now()/300)*3);
+}
+
+let last=performance.now();
+function loop(now){
+  let dt=(now-last)/1000; last=now; dt=Math.min(dt,0.033);
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+resize();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

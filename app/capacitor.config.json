@@ -1,0 +1,12 @@
+{
+  "appId": "com.zanezmiller.pull",
+  "appName": "PULL",
+  "webDir": "dist",
+  "backgroundColor": "#05080d",
+  "ios": {
+    "contentInset": "never"
+  },
+  "android": {
+    "backgroundColor": "#05080d"
+  }
+}
