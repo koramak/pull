@@ -28,6 +28,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run build
+      - run: cp -r ../prototype dist/prototype
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app/dist

@@ -10,6 +10,7 @@ ore into the station to bank it. Three hull points. When they're gone, the
 run ends.
 
 Every push to `main` builds and deploys the game to GitHub Pages via Actions.
+The prototypes are published alongside it under `/prototype/`.
 
 ## Repo layout
 
@@ -17,6 +18,7 @@ Every push to `main` builds and deploys the game to GitHub Pages via Actions.
 | --- | --- |
 | `app/` | Production game — Vite + vanilla TypeScript + Canvas 2D, no engine |
 | `prototype/pull.html` | The original prototype. **Feel/tuning baseline — source of truth.** |
+| `prototype/phosphor.html` | Phosphor CRT presentation prototype |
 | `docs/` | Design brief and engineering brief |
 | `design/icon/` | App icon kit ("gold core" direction) |
 
