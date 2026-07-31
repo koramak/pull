@@ -16,10 +16,12 @@ export interface EventMap {
 
 type Listener<K extends keyof EventMap> = (payload: EventMap[K]) => void
 
-const listeners: { [K in keyof EventMap]?: Listener<K>[] } = {}
+// Internally untyped store; the generic signatures on on/emit keep the
+// public surface fully typed.
+const listeners: Partial<Record<keyof EventMap, Array<(payload: never) => void>>> = {}
 
 export function on<K extends keyof EventMap>(event: K, fn: Listener<K>): () => void {
-  const arr = (listeners[event] ??= [])
+  const arr = (listeners[event] ??= []) as Array<Listener<K>>
   arr.push(fn)
   return () => {
     const i = arr.indexOf(fn)
@@ -28,7 +30,7 @@ export function on<K extends keyof EventMap>(event: K, fn: Listener<K>): () => v
 }
 
 export function emit<K extends keyof EventMap>(event: K, payload: EventMap[K]): void {
-  const arr = listeners[event]
+  const arr = listeners[event] as Array<Listener<K>> | undefined
   if (!arr) return
   for (let i = 0; i < arr.length; i++) arr[i](payload)
 }

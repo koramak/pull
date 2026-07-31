@@ -37,7 +37,7 @@ const KINDS: SpawnKind[] = [
 ]
 
 export class Spawner {
-  private timer = TUNING.spawn.firstDelay
+  private timer: number = TUNING.spawn.firstDelay
 
   reset(): void {
     this.timer = TUNING.spawn.firstDelay
