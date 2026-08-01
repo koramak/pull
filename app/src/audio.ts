@@ -36,6 +36,12 @@ const minorVoices: number[] = []
 // M5 — the heartbeat under one-section-left
 let hbCritical = false
 let hbTimer: ReturnType<typeof setInterval> | null = null
+// S3 — the phosphor hum (created lazily on the first run)
+let humNoiseGain: GainNode | null = null
+let humFilter: BiquadFilterNode | null = null
+let humOscGain: GainNode | null = null
+let humOn = false
+let humLastI = -1
 
 function now(): number {
   return ctx ? ctx.currentTime : 0
@@ -176,6 +182,69 @@ function ladderStep(step: number): number {
   return L[step % L.length] * Math.pow(2, Math.min(1, octaves)) // cap one octave up
 }
 
+// --- S3: the phosphor hum ---------------------------------------------------
+// A quiet bed — filtered noise + a low triangle — that confirms sound is on
+// and rises in brightness with the intensity float. Sustains cost nothing in
+// WebAudio, so this is the one continuous layer the mix allows.
+
+function ensureHum(): void {
+  if (!ctx || !sfxBus || humNoiseGain) return
+  try {
+    const H = TUNING.hum
+    // 2s noise loop — long enough that the loop point never reads
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate)
+    const data = buf.getChannelData(0)
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+    const src = ctx.createBufferSource()
+    src.buffer = buf
+    src.loop = true
+    humFilter = ctx.createBiquadFilter()
+    humFilter.type = 'bandpass'
+    humFilter.frequency.value = H.noiseFreqFrom
+    humFilter.Q.value = 0.8
+    humNoiseGain = ctx.createGain()
+    humNoiseGain.gain.value = 0
+    src.connect(humFilter)
+    humFilter.connect(humNoiseGain)
+    humNoiseGain.connect(sfxBus)
+    src.start()
+    const osc = ctx.createOscillator()
+    osc.type = 'triangle'
+    osc.frequency.value = H.oscHz
+    humOscGain = ctx.createGain()
+    humOscGain.gain.value = 0
+    osc.connect(humOscGain)
+    humOscGain.connect(sfxBus)
+    osc.start()
+  } catch { /* the bed is optional */ }
+}
+
+/** Frame hook from main: drive the hum from the intensity float. */
+export function updateAudio(intensity01: number, running: boolean): void {
+  if (!ctx || !settings.sound) return
+  if (running) ensureHum()
+  if (!humNoiseGain || !humFilter || !humOscGain) return
+  const H = TUNING.hum
+  const t = ctx.currentTime
+  if (running && !humOn) {
+    humOn = true
+    humLastI = -1
+  } else if (!running && humOn) {
+    humOn = false
+    humNoiseGain.gain.setTargetAtTime(0, t, H.fadeOut / 3)
+    humOscGain.gain.setTargetAtTime(0, t, H.fadeOut / 3)
+    return
+  }
+  if (!humOn) return
+  if (Math.abs(intensity01 - humLastI) < 0.02) return
+  humLastI = intensity01
+  // at one section the heartbeat owns the low end — thin the hum's triangle
+  const oscScale = hbCritical ? 0.4 : 1
+  humNoiseGain.gain.setTargetAtTime(H.noiseGainFrom + (H.noiseGainTo - H.noiseGainFrom) * intensity01, t, 0.25)
+  humFilter.frequency.setTargetAtTime(H.noiseFreqFrom + (H.noiseFreqTo - H.noiseFreqFrom) * intensity01, t, 0.3)
+  humOscGain.gain.setTargetAtTime((H.oscGainFrom + (H.oscGainTo - H.oscGainFrom) * intensity01) * oscScale, t, 0.25)
+}
+
 /** M5 — a soft lub-dub while one section from death. Event-driven state:
  *  set on the hull hit, cleared by repair, collapse, or a new run. */
 function setHeartbeat(on: boolean): void {
@@ -290,6 +359,18 @@ export function initAudioEvents(): void {
 
   on('runStart', () => setHeartbeat(false))
   on('collapse', () => setHeartbeat(false))
+
+  // P1 — a star lands: a small two-note tick; a rank is a short fanfare
+  // (ceremony stays reserved for the big three: rank, new best, death)
+  on('missionDone', () => {
+    beep(990, 0.07, 'triangle', 0.09)
+    beep(1485, 0.1, 'triangle', 0.08, 0, 0.07)
+  })
+  on('rankUp', () => {
+    beep(660, 0.09, 'triangle', 0.1)
+    beep(880, 0.09, 'triangle', 0.1, 0, 0.09)
+    beep(1320, 0.16, 'triangle', 0.11, 0, 0.18)
+  })
 
   // the death stop is silent; the sweep lands as the collapse begins (F3/S1)
   on('collapse', () => {

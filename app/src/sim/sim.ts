@@ -50,8 +50,9 @@ export class Sim {
   hullCritical = false
   /** F1 — well strength envelope 0..1: attack on touch, release-decay on lift. */
   wellPower = 0
-  /** M5 — remaining clutch slow-motion, real seconds. */
+  /** F5/M5 — remaining slow-motion (real seconds) and its time scale. */
   slowmoT = 0
+  slowmoScale = 1
 
   private accumulator = 0
   private stepCounter = 0
@@ -89,6 +90,7 @@ export class Sim {
     this.hullCritical = false
     this.wellPower = 0
     this.slowmoT = 0
+    this.slowmoScale = 1
     this.chainN = 0
     this.lastSmashAt = -1e9
     this.veinTimer = TUNING.vein.firstAt
@@ -110,11 +112,11 @@ export class Sim {
   }
 
   frame(scaledDt: number, pointer: PointerState, spawning: boolean): void {
-    // M5 — the clutch beat: the world runs slow for a moment, the finger
-    // stays live. Consumed in real seconds, applied to sim seconds.
+    // F5/M5 — the slow-motion beat: the world runs slow for a moment, the
+    // finger stays live. Consumed in real seconds, applied to sim seconds.
     if (this.slowmoT > 0) {
       this.slowmoT -= scaledDt
-      scaledDt *= TUNING.critical.clutchScale
+      scaledDt *= this.slowmoScale
     }
     if (this.freezeT > 0) {
       this.freezeT -= scaledDt
@@ -248,6 +250,7 @@ export class Sim {
       const nearTrauma = sdx * sdx + sdy * sdy < TUNING.trauma.smashNearRadius * TUNING.trauma.smashNearRadius
       let value = 0
       let chain = 0
+      let risky = false
       if (bothRocks) {
         if (game.time - this.lastSmashAt <= S.chainWindow) this.chainN = Math.min(this.chainN + 1, S.chainCap)
         else this.chainN = 0
@@ -255,7 +258,8 @@ export class Sim {
         chain = this.chainN
         value = S.smash << chain
         const gap = Math.hypot(sdx, sdy) - TUNING.station.radius
-        if (gap < S.dangerRing) value *= S.riskMult
+        risky = gap < S.dangerRing
+        if (risky) value *= S.riskMult
         game.score += value
         game.smashes++
       }
@@ -264,7 +268,7 @@ export class Sim {
       a.dead = true
       b.dead = true
       this.hitStop(TUNING.hitStops.smash)
-      emit('smash', { x: mx, y: my, bothRocks, nearStation: nearTrauma, value, chain })
+      emit('smash', { x: mx, y: my, bothRocks, nearStation: nearTrauma, value, chain, risky })
     } else {
       // Rubble comes apart on a graze — matter, not mass.
       let crumbled = false
@@ -514,7 +518,15 @@ export class Sim {
         if (receding && o.minGap < NM.maxGap && o.minGap > 0 && Math.hypot(o.vx, o.vy) > NM.minApproachSpeed) {
           o.missCredited = true
           game.score += TUNING.score.nearMiss
-          if (this.hullCritical) this.slowmoT = TUNING.critical.clutchSlowmo
+          // F5 — time is a feel currency: every close call bends it a little,
+          // and a clutch save at one section bends it hard (M5)
+          if (this.hullCritical) {
+            this.slowmoT = TUNING.critical.clutchSlowmo
+            this.slowmoScale = TUNING.critical.clutchScale
+          } else if (this.slowmoT <= 0) {
+            this.slowmoT = NM.slowmoDur
+            this.slowmoScale = NM.slowmoScale
+          }
           emit('nearMiss', { x: o.x, y: o.y, gap: Math.round(o.minGap), angle: Math.atan2(dy, dx) })
         }
       }

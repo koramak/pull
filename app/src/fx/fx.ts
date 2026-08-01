@@ -76,7 +76,20 @@ export const fx = {
   /** M8 — live vein: which edge is warm, and for how long. */
   vein: null as { side: number; t: number; dur: number } | null,
   /** N4 — clear-pulse ring clock (-1 idle). */
-  clearT: -1
+  clearT: -1,
+  /** F6 — bank chips in flight toward the score counter. */
+  flights: [] as Array<{ x: number; y: number; text: string; value: number; t: number }>,
+  /** F6 — counter pulse when a chip lands (-1 idle). */
+  scorePulse: -1,
+  /** F6 — bank streak mirror for the counter's excitement. */
+  streak: 0,
+  lastBankAt: -1e9,
+  /** F7 — phosphor burns where big smashes happened. */
+  burns: [] as Array<{ x: number; y: number; r: number; t: number }>,
+  /** F9 — station flinch offset (unit direction + clock; null idle). */
+  flinch: null as { dx: number; dy: number; t: number } | null,
+  /** P1 — one-slot banner over the field (missions, ranks). */
+  banner: null as { text: string; t: number; dur: number } | null
 }
 
 let noiseT = 0
@@ -100,6 +113,9 @@ export function initFx(): void {
     if (e.bothRocks) {
       // M1 — the float carries the real pay; chains earn the glow
       spawnFloat(e.x, e.y - 30, '+' + e.value, e.chain > 0 ? PAL.white : PAL.ink, e.chain > 0)
+      // F7 — a big smash burns into the phosphor for a beat
+      fx.burns.push({ x: e.x, y: e.y, r: TUNING.burns.rBase + e.chain * TUNING.burns.rPerChain, t: 0 })
+      if (fx.burns.length > TUNING.burns.cap) fx.burns.shift()
     } else {
       // ore lost — deliberately no glow
       spawnFloat(e.x, e.y - 30, 'ORE LOST', PAL.oreDead, false)
@@ -114,8 +130,12 @@ export function initFx(): void {
   on('bank', e => {
     fx.bankT = 0
     addTrauma(TUNING.trauma.bank)
-    // M2 — the ×2 state must read as a wager being won
-    spawnFloat(e.x, e.y - 74, e.doubled ? `+${e.score} ×2` : '+' + e.score, PAL.ore, true)
+    // F6 — the pay flies to the counter instead of evaporating in place;
+    // M2 — the ×2 state must still read as a wager being won
+    fx.flights.push({ x: e.x, y: e.y - 30, text: e.doubled ? `+${e.score} ×2` : '+' + e.score, value: e.score, t: 0 })
+    if (fx.flights.length > 6) fx.flights.shift()
+    fx.streak++
+    fx.lastBankAt = performance.now() / 1000
   })
 
   on('reservoirFull', () => {
@@ -155,6 +175,18 @@ export function initFx(): void {
     const profile = e.alive <= 1 ? table[3] : table[key]
     fx.hull = { t: 0, profile }
     addTrauma(profile.trauma)
+    // F9 — the station flinches away from the impact
+    fx.flinch = { dx: -Math.cos(e.angle), dy: -Math.sin(e.angle), t: 0 }
+    // F6 — the counter's excitement dies with the hit
+    fx.streak = 0
+  })
+
+  // P1 — banners: a star lands, or the stars cross a rank line
+  on('missionDone', e => {
+    fx.banner = { text: '✓ ' + e.text, t: 0, dur: 2.2 }
+  })
+  on('rankUp', e => {
+    fx.banner = { text: 'RANK UP — ' + e.name, t: 0, dur: 3 }
   })
 
   on('surge', () => addTrauma(TUNING.trauma.surge))
@@ -196,6 +228,12 @@ export function clearFx(): void {
   fx.hint = null
   fx.vein = null
   fx.clearT = -1
+  fx.flights.length = 0
+  fx.scorePulse = -1
+  fx.streak = 0
+  fx.burns.length = 0
+  fx.flinch = null
+  fx.banner = null
 }
 
 export function spawnFloat(x: number, y: number, text: string, color: string, glow: boolean): void {
@@ -267,6 +305,32 @@ export function updateFx(dt: number): void {
   if (fx.clearT >= 0) {
     fx.clearT += dt
     if (fx.clearT > TUNING.clearPulse.ringDur) fx.clearT = -1
+  }
+  for (let i = fx.flights.length - 1; i >= 0; i--) {
+    fx.flights[i].t += dt
+    if (fx.flights[i].t > TUNING.scoreFx.flightDur) {
+      fx.flights.splice(i, 1)
+      fx.scorePulse = 0 // a chip lands — the counter takes it
+    }
+  }
+  if (fx.scorePulse >= 0) {
+    fx.scorePulse += dt
+    if (fx.scorePulse > TUNING.scoreFx.pulseDur) fx.scorePulse = -1
+  }
+  if (fx.streak > 0 && performance.now() / 1000 - fx.lastBankAt > TUNING.audio.streakResetAfter) {
+    fx.streak = 0
+  }
+  for (let i = fx.burns.length - 1; i >= 0; i--) {
+    fx.burns[i].t += dt
+    if (fx.burns[i].t > TUNING.burns.life) fx.burns.splice(i, 1)
+  }
+  if (fx.flinch) {
+    fx.flinch.t += dt
+    if (fx.flinch.t > TUNING.flinch.dur) fx.flinch = null
+  }
+  if (fx.banner) {
+    fx.banner.t += dt
+    if (fx.banner.t > fx.banner.dur) fx.banner = null
   }
 }
 

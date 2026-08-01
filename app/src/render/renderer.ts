@@ -57,6 +57,8 @@ export class Renderer {
   private timeNow = 0
   /** M5 — short-lived sparks off the ring while one section from death. */
   private sparks: Array<{ x: number; y: number; vx: number; vy: number; t: number; life: number }> = []
+  /** F6 — the rolled score the counter displays (chases game.score). */
+  private scoreShown = 0
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!
@@ -92,6 +94,7 @@ export class Renderer {
   resetRunVisuals(): void {
     this.well.clear()
     this.stationDraw.resetRun()
+    this.scoreShown = 0
   }
 
   layout(): Layout {
@@ -106,7 +109,8 @@ export class Renderer {
     const px = this.dpr * this.scale
     const phase = game.phase
 
-    const wellActive = pointer.active && (phase === 'run' || phase === 'firstrun' || phase === 'collapse')
+    // the ghost finger on the title counts too (L5)
+    const wellActive = pointer.active && (phase === 'run' || phase === 'firstrun' || phase === 'collapse' || phase === 'title')
     this.well.update(dt, wellActive)
     this.timeNow = t
 
@@ -175,9 +179,10 @@ export class Renderer {
     // --- floats + HUD ------------------------------------------------------
     if (inField && phase !== 'title') {
       this.drawFloats(ctx)
+      this.drawFlights(ctx, l)
       // the wager hint belongs to live play — never over the choice plates
       if (phase === 'run' || phase === 'firstrun') this.drawHint(ctx, sim)
-      this.drawScore(ctx, l, phase === 'collapse' ? Math.max(0, 1 - game.phaseT / 1.2) : 1)
+      this.drawScore(ctx, l, phase === 'collapse' ? Math.max(0, 1 - game.phaseT / 1.2) : 1, dt)
     }
 
     // --- shell screens -----------------------------------------------------
@@ -233,7 +238,34 @@ export class Renderer {
     const onTitle = game.phase === 'title'
     const hideStation = onTitle || (game.phase === 'collapse' && game.phaseT > 0.9)
 
-    // station
+    // F7 — phosphor burns, the field's memory of big smashes (bottom layer)
+    for (const bn of fx.burns) {
+      const f = bn.t / TUNING.burns.life
+      ctx.globalAlpha = fieldAlpha * 0.12 * (1 - f)
+      ctx.fillStyle = PAL.rock
+      ctx.beginPath()
+      ctx.arc(bn.x, bn.y, bn.r * (1 + f * 0.35), 0, TAU)
+      ctx.fill()
+      if (bn.t < 0.3) {
+        ctx.globalAlpha = fieldAlpha * 0.4 * (1 - bn.t / 0.3)
+        ctx.beginPath()
+        ctx.arc(bn.x, bn.y, bn.r * 0.4, 0, TAU)
+        ctx.fill()
+      }
+    }
+    ctx.globalAlpha = 1
+
+    // F9 — the station flinches away from a hull hit
+    let flinchX = 0
+    let flinchY = 0
+    if (fx.flinch) {
+      const f = 1 - fx.flinch.t / TUNING.flinch.dur
+      flinchX = fx.flinch.dx * TUNING.flinch.px * f * f
+      flinchY = fx.flinch.dy * TUNING.flinch.px * f * f
+    }
+
+    // station (+ its ships) recoil together
+    if (flinchX !== 0 || flinchY !== 0) ctx.translate(flinchX, flinchY)
     if (!hideStation) {
       const sAlpha = fieldAlpha * flicker
       this.stationDraw.drawStructure(ctx, st, this.dpr * this.scale, sAlpha)
@@ -271,6 +303,7 @@ export class Renderer {
       }
     }
     ctx.globalAlpha = 1
+    if (flinchX !== 0 || flinchY !== 0) ctx.translate(-flinchX, -flinchY)
 
     // L1 — every object leaves a short tapered phosphor tail (the history
     // ring buffer held it all along). Ore runs warmer and a little longer.
@@ -398,6 +431,21 @@ export class Renderer {
       this.well.draw(ctx, pointer.x, pointer.y, wellAlpha)
     }
 
+    // L5 — the ghost finger on the title: a dashed fingertip where the
+    // demonstration is pressing
+    if (game.phase === 'title' && pointer.active) {
+      const pulse = 0.4 + 0.2 * Math.sin(this.timeNow * 3.2)
+      ctx.globalAlpha = pulse
+      ctx.strokeStyle = PAL.ink
+      ctx.lineWidth = 1
+      ctx.setLineDash([2, 4])
+      ctx.beginPath()
+      ctx.arc(pointer.x, pointer.y, 18, 0, TAU)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.globalAlpha = 1
+    }
+
     // M5 — one section left: sparks jitter off the ring, and the whole tube
     // runs a shade colder. No red, no darkening — never blind the clutch.
     const critical = sim.hullCritical && (game.phase === 'run' || game.phase === 'firstrun')
@@ -460,17 +508,53 @@ export class Renderer {
     ctx.restore()
   }
 
-  /** M2 — the wager line under the station, first two fills only. */
+  /** M2/P1 — the wager line and the mission/rank banner under the station. */
   private drawHint(ctx: CanvasRenderingContext2D, sim: Sim): void {
-    const h = fx.hint
-    if (!h) return
-    const f = h.t / h.dur
-    const a = f < 0.12 ? f / 0.12 : f > 0.78 ? Math.max(0, (1 - f) / 0.22) : 1
-    ctx.globalAlpha = a
     ctx.font = `12px ${FONT_LABEL}`
     ctx.textAlign = 'center'
-    ctx.fillStyle = PAL.rockLit
-    ctx.fillText(h.text, sim.station.x, sim.station.y + 118)
+    const h = fx.hint
+    if (h) {
+      const f = h.t / h.dur
+      const a = f < 0.12 ? f / 0.12 : f > 0.78 ? Math.max(0, (1 - f) / 0.22) : 1
+      ctx.globalAlpha = a
+      ctx.fillStyle = PAL.rockLit
+      ctx.fillText(h.text, sim.station.x, sim.station.y + 118)
+    }
+    const b = fx.banner
+    if (b) {
+      const f = b.t / b.dur
+      const a = f < 0.1 ? f / 0.1 : f > 0.8 ? Math.max(0, (1 - f) / 0.2) : 1
+      ctx.globalAlpha = a
+      ctx.fillStyle = PAL.ore
+      ctx.fillText(b.text, sim.station.x, sim.station.y + 140)
+    }
+    ctx.globalAlpha = 1
+  }
+
+  /** F6 — bank chips arcing to the counter. */
+  private drawFlights(ctx: CanvasRenderingContext2D, l: Layout): void {
+    if (fx.flights.length === 0) return
+    const S = TUNING.scoreFx
+    const ty = Math.max(62, l.safeTop + 52) - 18
+    const tx = 58
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'alphabetic'
+    ctx.font = `24px ${FONT_NUM}`
+    for (const fl of fx.flights) {
+      const p = Math.min(1, fl.t / S.flightDur)
+      const e = 1 - (1 - p) * (1 - p) // ease-out
+      // quadratic arc via a sideways control point
+      const mx = (fl.x + tx) / 2 + S.flightArc
+      const my = (fl.y + ty) / 2
+      const ix = (1 - e) * (1 - e) * fl.x + 2 * (1 - e) * e * mx + e * e * tx
+      const iy = (1 - e) * (1 - e) * fl.y + 2 * (1 - e) * e * my + e * e * ty
+      ctx.globalAlpha = p < 0.1 ? p / 0.1 : 1
+      ctx.fillStyle = PAL.ore
+      ctx.shadowColor = 'rgba(255,226,63,0.7)'
+      ctx.shadowBlur = 7
+      ctx.fillText(fl.text, ix, iy)
+      ctx.shadowBlur = 0
+    }
     ctx.globalAlpha = 1
   }
 
@@ -614,26 +698,46 @@ export class Renderer {
     ctx.globalAlpha = 1
   }
 
-  private drawScore(ctx: CanvasRenderingContext2D, l: Layout, alpha: number): void {
+  private drawScore(ctx: CanvasRenderingContext2D, l: Layout, alpha: number, dt: number): void {
     if (alpha <= 0.01) return
-    // P4 — the personal best lives inside the run; closing on it, the
-    // counter itself leans in.
-    const near = game.best > 0 && game.score >= game.best * TUNING.pb.nearFrac && !game.newBest
+    const S = TUNING.scoreFx
+    // F6 — the counter rolls: it chases the real score minus whatever is
+    // still in flight, so a bank lands when its chip does.
+    let inflight = 0
+    for (const fl of fx.flights) inflight += fl.value
+    const target = Math.max(0, game.score - inflight)
+    this.scoreShown += (target - this.scoreShown) * Math.min(1, dt * S.rollRate)
+    if (Math.abs(target - this.scoreShown) < 0.7) this.scoreShown = target
+    const shown = Math.round(this.scoreShown)
+
+    // P4 — closing on the best, the counter leans in; streaks add glow (F6)
+    const near = game.best > 0 && shown >= game.best * TUNING.pb.nearFrac && !game.challenge
+    const streakGlow = Math.min(S.streakGlowMax, fx.streak * S.streakGlowStep)
+    const pulse = fx.scorePulse >= 0 ? Math.sin((fx.scorePulse / S.pulseDur) * Math.PI) : 0
+    let sx = 22
+    let sy = Math.max(62, l.safeTop + 52)
+    if (fx.streak >= S.jitterFrom) {
+      sx += (Math.random() - 0.5) * 1.6
+      sy += (Math.random() - 0.5) * 1.6
+    }
     ctx.globalAlpha = alpha
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
-    ctx.font = `62px ${FONT_NUM}`
-    ctx.fillStyle = near || game.score > game.best ? PAL.white : PAL.ink
+    ctx.font = `${Math.round(62 * (1 + 0.08 * pulse))}px ${FONT_NUM}`
+    ctx.fillStyle = near || (game.best > 0 && shown > game.best) ? PAL.white : PAL.ink
     // only the score blooms among type
     ctx.shadowColor = 'rgba(174,185,196,0.8)'
-    ctx.shadowBlur = near ? 12 : 6
-    const sy = Math.max(62, l.safeTop + 52)
-    ctx.fillText(String(game.score), 22, sy)
+    ctx.shadowBlur = (near ? 12 : 6) + streakGlow
+    ctx.fillText(String(shown), sx, sy)
     ctx.shadowBlur = 0
-    if (game.best > 0) {
-      ctx.font = `11px ${FONT_LABEL}`
+    ctx.font = `11px ${FONT_LABEL}`
+    if (game.challenge) {
+      ctx.fillStyle = PAL.ore
+      const tgt = game.challenge.target
+      ctx.fillText(tgt ? `TARGET ${tgt}` : 'CHALLENGE RUN', 24, Math.max(62, l.safeTop + 52) + 20)
+    } else if (game.best > 0) {
       ctx.fillStyle = near ? PAL.labelBright : PAL.label
-      ctx.fillText(`BEST ${game.best}`, 24, sy + 20)
+      ctx.fillText(`BEST ${game.best}`, 24, Math.max(62, l.safeTop + 52) + 20)
     }
     ctx.globalAlpha = 1
   }

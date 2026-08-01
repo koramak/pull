@@ -49,7 +49,8 @@ const K = {
   seenFirstRun: 'pull.seenFirstRun',
   savedRun: 'pull.savedRun',
   fullHint: 'pull.fullHint',
-  deaths: 'pull.deaths'
+  deaths: 'pull.deaths',
+  missions: 'pull.missions'
 } as const
 
 // --- settings (live object; write-through) ---------------------------------
@@ -85,12 +86,17 @@ export interface RunRecord {
   at: number
 }
 
+// P5 medals need a real personal distribution, so the history keeps the
+// last 50 runs (newest first). Anything that only wants the recent few
+// slices what it needs.
+const RUNS_CAP = 50
+
 export function loadRuns(): RunRecord[] {
   try {
     const raw = store.get(K.runs)
     if (!raw) return []
     const arr = JSON.parse(raw) as RunRecord[]
-    return Array.isArray(arr) ? arr.slice(0, 5) : []
+    return Array.isArray(arr) ? arr.slice(0, RUNS_CAP) : []
   } catch {
     return []
   }
@@ -99,7 +105,7 @@ export function loadRuns(): RunRecord[] {
 export function pushRun(r: RunRecord): void {
   const runs = loadRuns()
   runs.unshift(r)
-  store.set(K.runs, JSON.stringify(runs.slice(0, 5)))
+  store.set(K.runs, JSON.stringify(runs.slice(0, RUNS_CAP)))
 }
 
 export function resetRecords(): void {
@@ -137,6 +143,31 @@ export function loadDeaths(): DeathRecord[] {
   } catch {
     return []
   }
+}
+
+// --- missions / ranks (P1) --------------------------------------------------
+
+export interface MissionsState {
+  active: string[]
+  stars: number
+}
+
+export function loadMissions(): MissionsState {
+  try {
+    const raw = store.get(K.missions)
+    if (!raw) return { active: [], stars: 0 }
+    const s = JSON.parse(raw) as MissionsState
+    return {
+      active: Array.isArray(s.active) ? s.active.slice(0, 3) : [],
+      stars: Number.isFinite(s.stars) && s.stars > 0 ? Math.floor(s.stars) : 0
+    }
+  } catch {
+    return { active: [], stars: 0 }
+  }
+}
+
+export function saveMissions(s: MissionsState): void {
+  try { store.set(K.missions, JSON.stringify(s)) } catch { /* ignore */ }
 }
 
 // --- teaching hints --------------------------------------------------------

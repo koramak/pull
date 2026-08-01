@@ -4,9 +4,11 @@
 
 import { TUNING } from '../config'
 import { game } from '../state'
-import { settings } from '../storage'
+import { settings, loadRuns } from '../storage'
 import type { Station, Track } from '../sim/station'
 import { upgrade } from '../upgrade'
+import { missions, rankInfo, pickAward, type Award } from '../missions'
+import { pickQuote, type DeathQuote } from '../quotes'
 import { PAL, FONT_NUM, FONT_LABEL, rgba } from './palette'
 
 const TAU = Math.PI * 2
@@ -16,7 +18,9 @@ export const ui = {
   playPressed: false,
   playPressT: 0,
   resetHoldT: 0,
-  resetDone: false
+  resetDone: false,
+  /** P2 — wall-clock seconds when the share link was copied (flash). */
+  shareFlashAt: -1e9
 }
 
 export interface Layout {
@@ -42,6 +46,15 @@ export function doneButton(l: Layout): { x: number; y: number; r: number } {
 
 export function gearButton(l: Layout): { x: number; y: number; r: number } {
   return { x: l.w - 43, y: l.h - 62, r: 26 }
+}
+
+/** P2 — the challenge-a-friend text button on the result screen. */
+export function shareButton(l: Layout): { x: number; y: number; w: number; h: number } {
+  return { x: l.w / 2, y: l.h * 0.9, w: 230, h: 40 }
+}
+
+export function hitRect(x: number, y: number, b: { x: number; y: number; w: number; h: number }): boolean {
+  return Math.abs(x - b.x) <= b.w / 2 && Math.abs(y - b.y) <= b.h / 2
 }
 
 export interface SettingsRow {
@@ -147,6 +160,22 @@ export function drawTitle(ctx: CanvasRenderingContext2D, l: Layout, t: number): 
     drawTracked(ctx, `BEST ${game.best}`, l.w / 2 + 1.2, l.safeTop + l.h * 0.214, 2.4)
   }
 
+  // P1 — the rank ladder, once it exists
+  const r = rankInfo()
+  if (r.stars > 0) {
+    ctx.fillStyle = PAL.labelBright
+    ctx.font = `11px ${FONT_LABEL}`
+    drawTracked(ctx, `RANK ${r.name} · ${r.into}/${r.span}`, l.w / 2 + 1.1, l.safeTop + l.h * 0.238, 2.2)
+  }
+
+  // P2 — a challenge waiting to be taken
+  if (game.pendingChallenge) {
+    const tgt = game.pendingChallenge.target
+    ctx.fillStyle = PAL.ore
+    ctx.font = `12px ${FONT_LABEL}`
+    drawTracked(ctx, tgt ? `CHALLENGE — TARGET ${tgt}` : 'CHALLENGE RUN', l.w / 2 + 1.2, l.safeTop + l.h * 0.27, 2.4)
+  }
+
   const b = titlePlayButton(l)
   drawPlayRock(ctx, b.x, b.y, t)
 
@@ -214,11 +243,54 @@ export function drawPaused(ctx: CanvasRenderingContext2D, l: Layout): void {
   circleButton(ctx, b.x, b.y, b.r, 'RESUME', 15, 3)
 }
 
-/** Result — score, three numbers, play again. (24d) */
+// P5 — per-entry picks, cached for the life of one result screen.
+let resultQuote: DeathQuote | null = null
+let resultAward: Award | null = null
+let resultMedal: 'BRONZE' | 'SILVER' | 'GOLD' | null = null
+let lastAppear = Infinity
+
+function enterResult(): void {
+  resultQuote = pickQuote()
+  resultAward = pickAward()
+  resultMedal = null
+  if (!game.challenge) {
+    // medal against your own history (the stored runs include this one)
+    const scores = loadRuns().map(r => r.score).sort((a, b) => a - b)
+    if (scores.length >= 6) {
+      const pct = (f: number) => scores[Math.min(scores.length - 1, Math.floor(f * scores.length))]
+      if (game.score >= pct(0.9)) resultMedal = 'GOLD'
+      else if (game.score >= pct(0.75)) resultMedal = 'SILVER'
+      else if (game.score >= pct(0.5)) resultMedal = 'BRONZE'
+    }
+  }
+}
+
+/** Result — the epitaph, the number, the story of the run, play again. (P5) */
 export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
-  const appear = game.phaseT
+  // after a skipped collapse the stagger fast-forwards (P5 tap-to-skip)
+  const appear = game.phaseT * (game.collapseSkipped ? 4 : 1)
+  if (appear < lastAppear) enterResult()
+  lastAppear = appear
   ctx.textAlign = 'center'
   ctx.textBaseline = 'alphabetic'
+
+  // the void speaks first — the quote gallery over the burn-in
+  if (appear > 0.4 && resultQuote) {
+    const a = Math.min(1, (appear - 0.4) / 0.4)
+    ctx.globalAlpha = a * 0.9
+    ctx.font = `12px ${FONT_LABEL}`
+    ctx.fillStyle = PAL.inkDim
+    const lines = wrapText(ctx, resultQuote.text, l.w - 88)
+    let qy = l.safeTop + l.h * 0.108
+    for (const line of lines) {
+      ctx.fillText(line, l.w / 2, qy)
+      qy += 17
+    }
+    ctx.fillStyle = PAL.label
+    ctx.font = `10px ${FONT_LABEL}`
+    ctx.fillText(resultQuote.attrib, l.w / 2, qy + 4)
+    ctx.globalAlpha = 1
+  }
 
   if (appear > 0.15) {
     ctx.fillStyle = PAL.label
@@ -237,7 +309,15 @@ export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
     drawTracked(ctx, String(game.score), l.w / 2 + 3, l.safeTop + l.h * 0.352, 6)
     ctx.shadowBlur = 0
     ctx.font = `12px ${FONT_LABEL}`
-    if (game.newBest) {
+    if (game.challenge) {
+      // P2 — challenge runs race a target and never touch the records
+      ctx.fillStyle = PAL.ore
+      const tgt = game.challenge.target
+      const line = tgt
+        ? (game.score > tgt ? `TARGET ${tgt} — CLEARED` : `TARGET ${tgt} — SHORT BY ${tgt - game.score}`)
+        : 'CHALLENGE RUN — NOT RANKED'
+      drawTracked(ctx, line, l.w / 2 + 1.5, l.safeTop + l.h * 0.39, 3)
+    } else if (game.newBest) {
       ctx.fillStyle = PAL.ore
       drawTracked(ctx, 'NEW BEST', l.w / 2 + 1.5, l.safeTop + l.h * 0.39, 3)
     } else if (game.best > 0) {
@@ -252,6 +332,15 @@ export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
         drawTracked(ctx, `BEST ${game.best}`, l.w / 2 + 1.5, l.safeTop + l.h * 0.39, 3)
       }
     }
+    // the run's one-line story: medal against your history, named award
+    const storyBits: string[] = []
+    if (resultMedal) storyBits.push(`● ${resultMedal}`)
+    if (resultAward) storyBits.push(`★ ${resultAward.name} — ${resultAward.detail}`)
+    if (storyBits.length > 0) {
+      ctx.font = `11px ${FONT_LABEL}`
+      ctx.fillStyle = resultMedal === 'GOLD' ? PAL.ore : PAL.labelBright
+      drawTracked(ctx, storyBits.join('  '), l.w / 2 + 1, l.safeTop + l.h * 0.421, 1.1)
+    }
     ctx.globalAlpha = 1
   }
 
@@ -260,8 +349,8 @@ export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
     ctx.globalAlpha = a
     const x0 = 60
     const x1 = l.w - 60
-    const y0 = l.h * 0.474
-    const step = 54
+    const y0 = l.h * 0.455
+    const step = 44
     const rows: Array<[string, string]> = [
       ['TIME', fmtTime(game.time)],
       ['ORE', String(game.oreTotal)],
@@ -277,7 +366,7 @@ export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
       ctx.stroke()
     }
     for (let i = 0; i < rows.length; i++) {
-      const yy = y0 + i * step + 32
+      const yy = y0 + i * step + 28
       ctx.textAlign = 'left'
       ctx.fillStyle = PAL.label
       ctx.fillText(rows[i][0], x0, yy)
@@ -285,6 +374,25 @@ export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
       ctx.fillStyle = PAL.inkDim
       ctx.fillText(rows[i][1], x1, yy)
     }
+    // P1 — the missions tick over even on a bad run; show the ledger
+    ctx.font = `11px ${FONT_LABEL}`
+    let my = y0 + rows.length * step + 26
+    for (const m of missions.active) {
+      const done = missions.doneThisRun.has(m.id)
+      const prog = Math.min(m.target, m.progress())
+      ctx.textAlign = 'left'
+      ctx.fillStyle = done ? PAL.ore : PAL.label
+      ctx.fillText(done ? '✓ ' + m.text : '· ' + m.text, x0, my)
+      if (!done && m.target > 1) {
+        ctx.textAlign = 'right'
+        ctx.fillText(`${prog}/${m.target}`, x1, my)
+      }
+      my += 19
+    }
+    const r = rankInfo()
+    ctx.textAlign = 'left'
+    ctx.fillStyle = PAL.labelBright
+    ctx.fillText(`RANK ${r.name} · ${r.into}/${r.span}`, x0, my + 4)
     ctx.textAlign = 'center'
     ctx.globalAlpha = 1
   }
@@ -292,8 +400,32 @@ export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
   if (appear > 1.5) {
     const b = playButton(l)
     circleButton(ctx, b.x, b.y, b.r, 'PLAY AGAIN', 14, 2)
+    // P2/L6 — the run itself is the challenge; share it as a link
+    const s = shareButton(l)
+    const copied = performance.now() / 1000 - ui.shareFlashAt < 1.6
+    ctx.font = `12px ${FONT_LABEL}`
+    ctx.fillStyle = copied ? PAL.ore : PAL.station
+    drawTracked(ctx, copied ? 'LINK COPIED' : 'CHALLENGE A FRIEND', s.x + 1.2, s.y + 4, 2.4)
     gear(ctx, l)
   }
+}
+
+/** Greedy word-wrap for centred canvas text. */
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const words = text.split(' ')
+  const lines: string[] = []
+  let line = ''
+  for (const w of words) {
+    const probe = line ? line + ' ' + w : w
+    if (ctx.measureText(probe).width > maxW && line) {
+      lines.push(line)
+      line = w
+    } else {
+      line = probe
+    }
+  }
+  if (line) lines.push(line)
+  return lines
 }
 
 /** Sections the last run died at — written by main on collapse end. */

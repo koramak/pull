@@ -42,7 +42,19 @@ export const game = {
   settingsFrom: 'title' as 'title' | 'result',
 
   /** Set by the sim when the run's station is down. */
-  pendingCollapse: false
+  pendingCollapse: false,
+
+  // P2 — challenge runs: seeded by a shared link, never ranked.
+  /** Seed of the CURRENT run (every run is seeded so it can be shared). */
+  runSeed: 0,
+  /** Non-null while the current run is a challenge (from a link). */
+  challenge: null as { target: number | null } | null,
+  /** A challenge waiting on the title (parsed from the URL). */
+  pendingChallenge: null as { seed: number; target: number | null } | null,
+
+  // P5 — tap-to-skip collapse (after the first-ever death)
+  skipCollapse: false,
+  collapseSkipped: false
 }
 
 export function initState(): void {
@@ -63,6 +75,18 @@ export function startRun(): void {
   game.smashes = 0
   game.newBest = false
   game.pendingCollapse = false
+  game.skipCollapse = false
+  game.collapseSkipped = false
+  // P2 — a pending challenge is consumed by exactly one run (one attempt);
+  // the next PLAY is an ordinary fresh-seeded run again
+  if (game.pendingChallenge) {
+    game.runSeed = game.pendingChallenge.seed
+    game.challenge = { target: game.pendingChallenge.target }
+    game.pendingChallenge = null
+  } else {
+    game.runSeed = (Math.random() * 0xffffffff) >>> 0
+    game.challenge = null
+  }
   clearSavedRun()
   const first = !seenFirstRun()
   setPhase(first ? 'firstrun' : 'run')
@@ -77,6 +101,10 @@ export function restoreRun(saved: SavedRun): void {
   game.smashes = saved.smashes
   game.newBest = false
   game.pendingCollapse = false
+  // a restored run's original seed is gone; give it a fresh identity so a
+  // share from its death still produces a valid (if unreplayable) link
+  game.runSeed = (Math.random() * 0xffffffff) >>> 0
+  game.challenge = null
   setPhase('paused')
   game.pausedAt = Date.now()
 }
@@ -86,7 +114,8 @@ export function beginCollapse(): void {
   if (game.phase === 'collapse') return
   setPhase('collapse')
   pushDeath({ t: game.time, score: game.score, at: Date.now() }) // M3 telemetry
-  game.newBest = game.score > game.best
+  // P2 — hard rule: only fresh-seed runs touch the records
+  game.newBest = !game.challenge && game.score > game.best
   if (game.newBest) {
     game.best = game.score
     saveBest(game.best)
@@ -95,14 +124,24 @@ export function beginCollapse(): void {
   emit('collapse', { score: game.score, best: game.best, newBest: game.newBest })
 }
 
+/** P5 — a tap during the collapse (after the first-ever death) fast-forwards
+ *  to the result. Main consumes the flag. */
+export function requestCollapseSkip(): void {
+  if (game.phase !== 'collapse') return
+  game.skipCollapse = true
+}
+
 export function finishCollapse(sectionsAtDeath: number): void {
-  pushRun({
-    score: game.score,
-    time: game.time,
-    ore: game.oreTotal,
-    sections: sectionsAtDeath,
-    at: Date.now()
-  })
+  if (!game.challenge) {
+    pushRun({
+      score: game.score,
+      time: game.time,
+      ore: game.oreTotal,
+      sections: sectionsAtDeath,
+      at: Date.now()
+    })
+  }
+  game.collapseSkipped = game.skipCollapse
   setPhase('result')
 }
 

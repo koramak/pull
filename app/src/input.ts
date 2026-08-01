@@ -5,12 +5,12 @@
 
 import { initAudio } from './audio'
 import { TUNING } from './config'
-import { game, startRun, resumeGame, openSettings, closeSettings } from './state'
-import { settings, saveSettings, resetRecords } from './storage'
+import { game, startRun, resumeGame, openSettings, closeSettings, requestCollapseSkip } from './state'
+import { settings, saveSettings, resetRecords, loadDeaths } from './storage'
 import { upgrade } from './upgrade'
 import type { PointerState } from './sim/sim'
 import type { Renderer } from './render/renderer'
-import { ui, playButton, titlePlayButton, doneButton, gearButton, settingsRows, hitCircle } from './render/screens'
+import { ui, playButton, titlePlayButton, doneButton, gearButton, shareButton, settingsRows, hitCircle, hitRect } from './render/screens'
 
 export const pointer: PointerState = { active: false, x: 0, y: 0 }
 
@@ -44,11 +44,15 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
         break
       }
       case 'result': {
-        if (game.phaseT < 1.5) break // buttons appear with the stagger
+        // after a skipped collapse the stagger fast-forwards (P5)
+        const gate = game.collapseSkipped ? TUNING.collapseSkip.resultGate : 1.5
+        if (game.phaseT < gate) break // buttons appear with the stagger
         if (hitCircle(p.x, p.y, playButton(l))) {
           startRun()
         } else if (hitCircle(p.x, p.y, gearButton(l))) {
           openSettings('result')
+        } else if (hitRect(p.x, p.y, shareButton(l))) {
+          shareChallenge()
         }
         break
       }
@@ -83,11 +87,20 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
         break
       }
       case 'run':
-      case 'firstrun':
+      case 'firstrun': {
+        pointer.active = true
+        pointer.x = p.x
+        pointer.y = p.y
+        break
+      }
       case 'collapse': {
         pointer.active = true
         pointer.x = p.x
         pointer.y = p.y
+        // P5 — after the first-ever death, a tap skips the ceremony
+        if (loadDeaths().length > 1 && game.phaseT > TUNING.collapseSkip.minPhaseT) {
+          requestCollapseSkip()
+        }
         break
       }
       default:
@@ -161,6 +174,21 @@ export function releasePointer(): void {
   ownerId = null
   pointer.active = false
   inputState.anyPointerDown = false
+}
+
+/** P2 — build and share this run's challenge link (fire-and-forget). */
+function shareChallenge(): void {
+  try {
+    const url = `${location.origin}${location.pathname}?c=${game.runSeed.toString(36)}&t=${game.score}`
+    const text = `PULL — beat my ${game.score}`
+    const nav = navigator as Navigator & { share?: (d: { title?: string; text?: string; url?: string }) => Promise<void> }
+    if (nav.share) {
+      void nav.share({ title: 'PULL', text, url }).catch(() => { /* dismissed */ })
+    } else if (navigator.clipboard) {
+      void navigator.clipboard.writeText(`${text} ${url}`).catch(() => { /* denied */ })
+    }
+    ui.shareFlashAt = performance.now() / 1000
+  } catch { /* sharing is garnish */ }
 }
 
 export function applyReduceMotion(): void {

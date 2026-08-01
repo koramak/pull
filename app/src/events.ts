@@ -5,7 +5,7 @@
 export interface EventMap {
   runStart: void
   spawn: { kind: string; x: number; y: number }
-  smash: { x: number; y: number; bothRocks: boolean; nearStation: boolean; value: number; chain: number }
+  smash: { x: number; y: number; bothRocks: boolean; nearStation: boolean; value: number; chain: number; risky: boolean }
   /** Rubble coming apart on a graze — quieter than a smash. */
   crumble: { x: number; y: number }
   bank: { x: number; y: number; score: number; doubled: boolean }
@@ -24,6 +24,10 @@ export interface EventMap {
   vein: { side: number }
   /** M6 — a dead hull section was relit (the HULL plate repaired it). */
   hullRepair: { section: number }
+  /** P1 — a mission just completed (one star). */
+  missionDone: { text: string }
+  /** P1 — the stars crossed a rank boundary. */
+  rankUp: { name: string }
   collapse: { score: number; best: number; newBest: boolean }
   pause: void
   resume: void

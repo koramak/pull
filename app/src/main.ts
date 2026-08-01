@@ -9,7 +9,10 @@ import { SystemRNG } from './rng'
 import { Sim } from './sim/sim'
 import { Renderer } from './render/renderer'
 import { initInput, updateInput, pointer, releasePointer, inputState } from './input'
-import { initAudioEvents, resumeAudio } from './audio'
+import { initAudioEvents, resumeAudio, updateAudio } from './audio'
+import { initMissions, updateMissions } from './missions'
+import { SeededRNG } from './rng'
+import type { PointerState } from './sim/sim'
 import { MONOLITH, MEDIUM, SHARD } from './sim/pool'
 import { initHaptics } from './haptics'
 import { initFx, updateFx, clearFx } from './fx/fx'
@@ -60,6 +63,8 @@ document.addEventListener('visibilitychange', () => {
 
 on('runStart', () => {
   sim.reset()
+  // P2 — every run is seeded so any run can become a challenge link
+  sim.rng = new SeededRNG(game.runSeed)
   intensity.reset()
   upgrade.cancel()
   renderer.resetRunVisuals()
@@ -68,10 +73,27 @@ on('runStart', () => {
   else firstRun.stop()
 })
 
+// P2 — a challenge link: ?c=<seed36>&t=<target>. Parsed once, consumed by
+// the next PLAY; the URL is cleaned so a reload isn't a re-challenge.
+try {
+  const params = new URLSearchParams(location.search)
+  const c = params.get('c')
+  if (c) {
+    const seed = parseInt(c, 36) >>> 0
+    const t = parseInt(params.get('t') ?? '', 10)
+    game.pendingChallenge = { seed, target: Number.isFinite(t) && t > 0 ? t : null }
+    params.delete('c')
+    params.delete('t')
+    const rest = params.toString()
+    history.replaceState(null, '', location.pathname + (rest ? '?' + rest : ''))
+  }
+} catch { /* malformed link — just an ordinary boot */ }
+
 initState()
 initFx()
 initAudioEvents()
 initHaptics()
+initMissions()
 firstRun.init()
 initInput(canvas, renderer)
 initDebug(sim)
@@ -95,8 +117,13 @@ let choiceArm = 0
 // N4 — the clear pulse fires the moment the surge lands (surge → build).
 let prevUpgradeStage = upgrade.stage
 
-// N1/L5 — title attract field: slow drifters aimed loosely across mid-screen.
+// N1/L5 — title attract field: slow drifters aimed loosely across mid-screen,
+// and every few seconds a ghost finger presses down and everything bends
+// toward it — the verb, demonstrated before the first touch.
 let attractTimer = 0
+let ghostTimer = TUNING.ghost.every * 0.6
+let ghostHold = 0
+const ghostPointer: PointerState = { active: false, x: 0, y: 0 }
 
 function updateAttract(dt: number): void {
   const T = TUNING.title
@@ -112,8 +139,21 @@ function updateAttract(dt: number): void {
     })
     attractTimer = T.attractEvery * (0.7 + sim.rng.next() * 0.6)
   }
+  if (ghostHold > 0) {
+    ghostHold -= dt
+    if (ghostHold <= 0) ghostPointer.active = false
+  } else {
+    ghostTimer -= dt
+    if (ghostTimer <= 0 && sim.pool.count > 0) {
+      ghostPointer.active = true
+      ghostPointer.x = sim.width * (0.28 + Math.random() * 0.44)
+      ghostPointer.y = sim.height * (0.56 + Math.random() * 0.24)
+      ghostHold = TUNING.ghost.hold
+      ghostTimer = TUNING.ghost.every
+    }
+  }
   // integrate + cull only — the phase gates station contact and the clock
-  sim.frame(dt, pointer, false)
+  sim.frame(dt, ghostPointer, false)
 }
 
 let last = performance.now()
@@ -133,6 +173,7 @@ function frame(now: number): void {
   if (phase === 'run' || phase === 'firstrun') {
     sim.frame(dt, pointer, phase === 'run')
     intensity.update(dt, sim, game.time)
+    updateMissions(dt, sim)
     if (phase === 'firstrun') firstRun.update(dt, sim, pointer)
 
     // reservoir full + finger released → the choice (if anything's buyable)
@@ -156,13 +197,16 @@ function frame(now: number): void {
   } else if (phase === 'collapse') {
     // rocks drift on, irrelevant — which is the point
     sim.frame(dt * 0.3, pointer, false)
-    if (game.phaseT >= TUNING.collapse.toResult) {
+    if (game.phaseT >= TUNING.collapse.toResult || game.skipCollapse) {
       setLastSections(sim.station.sections)
       finishCollapse(sim.station.sections)
     }
   } else if (phase === 'title') {
     updateAttract(dt)
   }
+
+  // S3 — the phosphor hum rides the intensity float during live play
+  updateAudio(intensity.value, phase === 'run' || phase === 'firstrun')
 
   // The upgrade timeline runs through choice AND the surge/build that play
   // over live gameplay after the run resumes.
@@ -183,7 +227,7 @@ function frame(now: number): void {
     }
   }
 
-  renderer.draw(sim, pointer, dt, now)
+  renderer.draw(sim, phase === 'title' ? ghostPointer : pointer, dt, now)
   updateDebug(sim, dt)
   requestAnimationFrame(frame)
 }

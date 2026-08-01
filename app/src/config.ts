@@ -73,7 +73,11 @@ export const TUNING = {
     maxGap: 64,           // surface gap (px) that counts as a genuine near miss
     minApproachSpeed: 120,
     flareDuration: 0.5,
-    cooldown: 0.45
+    cooldown: 0.45,
+    // F5 — every close call bends time a little (the clutch version at one
+    // section is critical.clutchSlowmo/Scale)
+    slowmoDur: 0.18,
+    slowmoScale: 0.85
   },
 
   difficulty: {
@@ -311,6 +315,57 @@ export const TUNING = {
   pb: {
     nearFrac: 0.85,       // score ≥ this × best brightens the counter
     calloutFrac: 0.7      // result screen states "N% of your best" above this
+  },
+
+  // F6 — score theater: banks fly a chip to the counter, the counter rolls
+  // rather than jumps, and streaks make it lean in.
+  scoreFx: {
+    flightDur: 0.28,      // s for the +N chip to reach the counter
+    flightArc: 42,        // px of sideways arc on the way
+    rollRate: 14,         // 1/s — how hard the displayed value chases the real one
+    pulseDur: 0.22,       // s of counter pulse when a chip lands
+    streakGlowStep: 1.5,  // extra shadowBlur per bank-streak step (cap below)
+    streakGlowMax: 8,
+    jitterFrom: 4         // streak length where the counter starts to buzz
+  },
+
+  // F7 — permanence: big smashes leave a phosphor burn that fades slowly.
+  burns: {
+    life: 2.4,
+    cap: 12,
+    rBase: 6,
+    rPerChain: 2
+  },
+
+  // F9 — the station flinches away from a hull hit.
+  flinch: {
+    px: 4,
+    dur: 0.16
+  },
+
+  // S3 — the phosphor hum: a quiet bed that confirms sound is on and rises
+  // with the intensity float. At one section the heartbeat takes the floor.
+  hum: {
+    noiseGainFrom: 0.006,
+    noiseGainTo: 0.028,
+    noiseFreqFrom: 600,
+    noiseFreqTo: 1400,
+    oscHz: 170,
+    oscGainFrom: 0.004,
+    oscGainTo: 0.016,
+    fadeOut: 0.8          // s to silence on collapse
+  },
+
+  // P5 — death screen: tap-to-skip after the first-ever death.
+  collapseSkip: {
+    minPhaseT: 0.35,      // a stray tap right at death must not eat the moment
+    resultGate: 0.4       // s before PLAY AGAIN accepts after a skipped collapse
+  },
+
+  // L5 — the ghost finger on the title: a demonstration, every few seconds.
+  ghost: {
+    every: 5.5,
+    hold: 2.2
   },
 
   // 22a–22d — the tube gets tired. One float drives everything.
