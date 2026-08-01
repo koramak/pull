@@ -37,6 +37,11 @@ export const TUNING = {
     softening: 3600,
     maxAccel: 2400,
     touchAccel: 120,   // above this an object counts as "touched" (deflect bonus)
+    // F1 — the grab: force ramps in with ease-out and decays on release.
+    // The decay doubles as forgiveness: a thumb slip mid-slingshot keeps
+    // pulling for ~120ms. Total attack stays under 100ms so it reads instant.
+    attack: 0.075,     // s to full strength after touch
+    release: 0.12,     // s of decaying pull after lift
     // 31a — the contracting circle (+ 33a dust)
     ringSpawnEvery: 0.53,  // three live, staggered — one is always closing
     ringDuration: 1.6,     // r132 → r56, ease-in
@@ -124,10 +129,48 @@ export const TUNING = {
     deflect: 5
   },
 
+  // F2 — deformation derived from the sim. Objects stretch along velocity
+  // (area-conserving), squash on soft contact, and ore idles with a shimmer
+  // so the eye finds the reward.
+  feel: {
+    stretchK: 0.16,        // stretch fraction at the reference speed
+    stretchRefSpeed: 620,  // px/s of "full" stretch
+    stretchMax: 0.24,      // hard cap on the deformation
+    squashDur: 0.1,        // s of impact squash after a soft bounce
+    squashAmt: 0.2,
+    oreShimmerAmp: 0.045,  // idle scale wobble on ore
+    oreShimmerHz: 2.2,
+    gulpDur: 0.18,         // station core "gulp" on a bank
+    gulpAmt: 0.12
+  },
+
+  // F3 — hit-stop tiers by meaning (the world freezes; the finger never does).
+  // The hull value is deliberately long: your worst moment stops the world.
+  // On death it bleeds into the collapse timescale (×0.3) → ~400ms real stop.
+  hitStops: {
+    bank: 0.03,
+    smash: 0.05,
+    hull: 0.12
+  },
+
+  // F4 — trauma screen shake: add per event, amplitude = trauma², driven by
+  // smooth noise with a little roll. Overlapping hits compound and cap at 1.
+  trauma: {
+    maxOffset: 14,        // px at full trauma (≈3.5% of the stage width)
+    maxRoll: 0.05,        // rad at full trauma
+    decayPerSec: 1.25,
+    bank: 0.08,           // a positive thump, barely there
+    smash: 0.12,
+    smashNear: 0.2,       // smashes close to the hull hit harder
+    smashNearRadius: 170,
+    surge: 0.15,
+    collapse: 0.75
+  },
+
   // The reservoir: warm light stored inside the core. Full = upgrade armed.
   reservoir: {
     unitsPerBank: 5,      // ore units credited per banked ore
-    baseCapacity: 60,     // "at 60 ore the reservoir is full"
+    baseCapacity: 40,     // N2 — 8 banks to the first choice (~35-45s of play)
     capacityGrowth: 1.5,  // CAPACITY track: ×1.5 per purchase
     spillFraction: 0.25,  // a hull hit takes a quarter of your ore
     fullPulsePeriod: 1.05 // the only pulsing element in the game
@@ -159,7 +202,9 @@ export const TUNING = {
     orbitRadius: 61,
     orbitPeriod: 14,      // slow even sweep
     range: 270,           // furthest rock a ship will engage
-    reload: 2.0,
+    reload: 2.0,          // M9 — floor; ships stay scarce
+    damage: 2,            // N3 — a shot breaks a medium outright, monolith in two
+    knockback: 90,        // N3 — px/s shove along the tracer; every shot visibly acts
     tracerDuration: 0.09, // 1px white tracer, 90ms, no projectile
     aimLead: 3.2,         // s of look-ahead when testing "collision course"
     hitFlash: 0.09
@@ -168,25 +213,44 @@ export const TUNING = {
   // Hull hit — the tube reports damage. Depth scales with resolution
   // (chosen "more extreme" curve), one-section-left snaps to full alarm.
   hullHit: {
-    hitStop: 0.042,
-    // per live-section-count BEFORE the hit: [dropout alphas], tear px, shake px, duration s
+    // F8 — the flicker never blinds: dips floor at ~45% and stay ≤100ms so
+    // the field stays readable at the exact moment reading it matters most.
+    // per live-section-count BEFORE the hit: [dropout alphas], tear px, trauma, duration s
     flicker: {
-      3: { dips: [0.06, 0.10, 0.22], tear: 20, shake: 15, duration: 0.156 },
-      4: { dips: [0.30, 0.52], tear: 11, shake: 7.5, duration: 0.120 },
-      5: { dips: [0.68, 0.92], tear: 5, shake: 3.2, duration: 0.054 },
-      6: { dips: [0.88], tear: 2, shake: 1.4, duration: 0.036 }
-    } as Record<number, { dips: number[]; tear: number; shake: number; duration: number }>,
+      3: { dips: [0.45, 0.50, 0.55], tear: 20, trauma: 0.5, duration: 0.10 },
+      4: { dips: [0.50, 0.62], tear: 11, trauma: 0.38, duration: 0.09 },
+      5: { dips: [0.70, 0.92], tear: 5, trauma: 0.26, duration: 0.054 },
+      6: { dips: [0.88], tear: 2, trauma: 0.18, duration: 0.036 }
+    } as Record<number, { dips: number[]; tear: number; trauma: number; duration: number }>,
     spillChips: 3,        // warm chips spinning out of the core — the only
     tearLineWidth: 1      // time warm light leaves the station. 1px line.
   },
 
   smash: {
-    hitStop: 0.042,
     // two thin expanding rings and nothing else; white is reserved for this
     ringA: { r0: 12, r1: 92, grow: 0.24, w: 1.6 },
     ringB: { r0: 6, r1: 46, grow: 0.16, w: 1.2 },
-    shakeMain: 10,
     duration: 0.45        // contact → empty space
+  },
+
+  // N1 + L5 — the title is a live field: slow rocks drifting through, and
+  // the play target is itself an asteroid sitting where the station will be.
+  title: {
+    attractEvery: 2.2,    // s between drifters (jittered)
+    attractSpeedMin: 30,
+    attractSpeedMax: 58,
+    attractMax: 9,        // drifters alive at once
+    attractSpread: 0.9,   // rad — aimed loosely across mid-screen
+    fieldAlpha: 0.5,      // the field sits behind the shell type
+    playRockScale: 2.05,  // monolith outline × this = the PLAY target
+    playSpin: 0.05        // rad/s idle rotation
+  },
+
+  // M2 — the wager must be perceptible: the full-reservoir hint runs the
+  // first two times only, then the game trusts you.
+  hints: {
+    fullShows: 2,
+    fullDuration: 3.2
   },
 
   // 22a–22d — the tube gets tired. One float drives everything.
@@ -251,13 +315,30 @@ export const TUNING = {
   fx: {
     maxParticles: 256,
     maxFloats: 24,
-    shakeDecay: 34,
     floatRise: 44,
     floatLife: 0.42
   },
 
   audio: {
-    master: 0.5
+    master: 0.5,
+    // S1 — phone speakers reproduce almost nothing below ~150-200Hz; a
+    // master high-pass reclaims headroom and everything is voiced above it.
+    highpassHz: 145,
+    // ducking: on a hull hit the rest of the mix drops so the gap carries it
+    duckTo: 0.3,
+    duckHold: 0.25,
+    duckRelease: 0.3,
+    // S2 — streak ladder, pentatonic-ish ratios (1 · 9/8 · 5/4 · 3/2 · 5/3 · 2):
+    // overlapping chimes always stay consonant.
+    ladder: [1, 1.125, 1.25, 1.5, 1.6667, 2],
+    bankBaseHz: 660,
+    smashBaseHz: 500,
+    streakResetAfter: 5,  // s without a bank drops the ladder back down
+    chainWindow: 1.5,     // s between smashes that continue the chain
+    pitchJitter: 0.05,    // ±5% on repeated one-shots so they never machine-gun
+    collapseDelay: 0.35,  // s of silence under the death stop before the sweep
+    voiceWindow: 0.5,     // S4 — minor sounds are dropped when the mix is busy
+    maxMinorVoices: 4
   }
 } as const
 

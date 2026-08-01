@@ -2,11 +2,16 @@
 // stores of transient visuals for the renderer: shock rings (the smash),
 // hull-hit flicker/tear clocks, ore-spill chips, near-miss flares, gain
 // floats, ship tracers live on the ships themselves. Runs on real frame time.
+//
+// F4 — screen shake is a trauma system: events add trauma 0..1, amplitude is
+// trauma², and the offsets come from smooth coherent noise (plus a little
+// roll), so overlapping hits compound honestly instead of restarting a
+// canned shake.
 
 import { TUNING } from '../config'
 import { on } from '../events'
 import { PAL } from '../render/palette'
-import { settings } from '../storage'
+import { settings, loadFullHintCount, markFullHintShown } from '../storage'
 
 const TAU = Math.PI * 2
 
@@ -45,12 +50,17 @@ export interface Flare {
 export interface HullFxProfile {
   dips: number[]
   tear: number
-  shake: number
+  trauma: number
   duration: number
 }
 
 export const fx = {
-  shake: 0,
+  /** Accumulated shake energy 0..1; amplitude goes as trauma². */
+  trauma: 0,
+  /** Per-frame shake outputs the renderer applies (world px / radians). */
+  shakeX: 0,
+  shakeY: 0,
+  shakeRoll: 0,
   shocks: [] as ShockRing[],
   chips: [] as SpillChip[],
   floats: [] as GainFloat[],
@@ -60,11 +70,20 @@ export const fx = {
   /** Crumble ring (rubble coming apart) — quieter than a smash. */
   crumbles: [] as ShockRing[],
   /** Hull-hit flicker/tear clock; null when quiet. */
-  hull: null as { t: number; profile: HullFxProfile } | null
+  hull: null as { t: number; profile: HullFxProfile } | null,
+  /** M2 — one-line teach under the station while the reservoir is full. */
+  hint: null as { text: string; t: number; dur: number } | null
 }
+
+let noiseT = 0
 
 function motion(v: number): number {
   return settings.reduceMotion ? v * 0.3 : v
+}
+
+/** F4 — add shake energy for an event; compounds and caps at 1. */
+export function addTrauma(v: number): void {
+  fx.trauma = Math.min(1, fx.trauma + motion(v))
 }
 
 export function initFx(): void {
@@ -73,7 +92,7 @@ export function initFx(): void {
   on('smash', e => {
     fx.shocks.push({ x: e.x, y: e.y, t: 0 })
     if (fx.shocks.length > 6) fx.shocks.shift()
-    fx.shake = Math.max(fx.shake, motion(TUNING.smash.shakeMain))
+    addTrauma(e.nearStation ? TUNING.trauma.smashNear : TUNING.trauma.smash)
     if (e.bothRocks) {
       spawnFloat(e.x, e.y - 30, '+' + TUNING.score.smash, PAL.ink, false)
     } else {
@@ -89,7 +108,18 @@ export function initFx(): void {
 
   on('bank', e => {
     fx.bankT = 0
-    spawnFloat(e.x, e.y - 74, '+' + e.score, PAL.ore, true)
+    addTrauma(TUNING.trauma.bank)
+    // M2 — the ×2 state must read as a wager being won
+    spawnFloat(e.x, e.y - 74, e.doubled ? `+${e.score} ×2` : '+' + e.score, PAL.ore, true)
+  })
+
+  on('reservoirFull', () => {
+    // M2 — teach the wager the first two times, then trust the player
+    const shown = loadFullHintCount()
+    if (shown < TUNING.hints.fullShows) {
+      fx.hint = { text: 'RESERVOIR FULL — BANKS ×2 — RELEASE TO UPGRADE', t: 0, dur: TUNING.hints.fullDuration }
+      markFullHintShown()
+    }
   })
 
   on('deflect', e => {
@@ -107,10 +137,15 @@ export function initFx(): void {
     const key = Math.min(6, Math.max(3, e.sectionsBefore))
     const profile = e.alive <= 1 ? table[3] : table[key]
     fx.hull = { t: 0, profile }
-    fx.shake = Math.max(fx.shake, motion(profile.shake))
+    addTrauma(profile.trauma)
   })
 
-  on('oreSpill', () => {
+  on('surge', () => addTrauma(TUNING.trauma.surge))
+  on('collapse', () => addTrauma(TUNING.trauma.collapse))
+
+  on('oreSpill', e => {
+    // M2 — the spill is a visible cost, not a silent leak
+    spawnFloat(e.x, e.y - 104, `-${e.amount} ORE`, PAL.oreDead, false)
     const n = TUNING.hullHit.spillChips
     for (let i = 0; i < n; i++) {
       const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4
@@ -130,7 +165,10 @@ export function initFx(): void {
 }
 
 export function clearFx(): void {
-  fx.shake = 0
+  fx.trauma = 0
+  fx.shakeX = 0
+  fx.shakeY = 0
+  fx.shakeRoll = 0
   fx.shocks.length = 0
   fx.chips.length = 0
   fx.floats.length = 0
@@ -138,6 +176,7 @@ export function clearFx(): void {
   fx.crumbles.length = 0
   fx.bankT = -1
   fx.hull = null
+  fx.hint = null
 }
 
 export function spawnFloat(x: number, y: number, text: string, color: string, glow: boolean): void {
@@ -145,8 +184,27 @@ export function spawnFloat(x: number, y: number, text: string, color: string, gl
   if (fx.floats.length > TUNING.fx.maxFloats) fx.floats.shift()
 }
 
+/** Smooth coherent noise in [-1, 1] — summed sines, cheap and frame-stable. */
+function noise(t: number, f: number, p1: number, p2: number): number {
+  return (Math.sin(t * f) + 0.5 * Math.sin(t * f * 1.83 + p1) + 0.25 * Math.sin(t * f * 3.11 + p2)) / 1.75
+}
+
 export function updateFx(dt: number): void {
-  fx.shake = Math.max(0, fx.shake - dt * TUNING.fx.shakeDecay)
+  // trauma shake — linear decay, squared response, coherent noise + roll
+  noiseT += dt
+  fx.trauma = Math.max(0, fx.trauma - dt * TUNING.trauma.decayPerSec)
+  const amp = fx.trauma * fx.trauma
+  if (amp > 0.0004) {
+    const T = TUNING.trauma
+    fx.shakeX = noise(noiseT, 67.3, 1.7, 4.1) * amp * T.maxOffset
+    fx.shakeY = noise(noiseT, 59.9, 3.9, 1.3) * amp * T.maxOffset
+    fx.shakeRoll = noise(noiseT, 31.7, 2.6, 5.2) * amp * T.maxRoll
+  } else {
+    fx.shakeX = 0
+    fx.shakeY = 0
+    fx.shakeRoll = 0
+  }
+
   if (fx.bankT >= 0) {
     fx.bankT += dt
     if (fx.bankT > 0.45) fx.bankT = -1
@@ -179,6 +237,10 @@ export function updateFx(dt: number): void {
     fx.hull.t += dt
     if (fx.hull.t > fx.hull.profile.duration) fx.hull = null
   }
+  if (fx.hint) {
+    fx.hint.t += dt
+    if (fx.hint.t > fx.hint.dur) fx.hint = null
+  }
 }
 
 /** Station draw alpha during a hull-hit flicker (1 when quiet). */
@@ -193,7 +255,7 @@ export function hullFlickerAlpha(): number {
   if (idx >= dips.length * 2) return 1
   if (idx % 2 === 0) {
     const a = dips[idx / 2]
-    return settings.reduceMotion ? Math.max(0.45, a) : a
+    return settings.reduceMotion ? Math.max(0.55, a) : a
   }
   return 1
 }

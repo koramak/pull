@@ -8,7 +8,6 @@ import { settings } from '../storage'
 import type { Station, Track } from '../sim/station'
 import { upgrade } from '../upgrade'
 import { PAL, FONT_NUM, FONT_LABEL, rgba } from './palette'
-import { drawEmblemStation } from './stationDraw'
 
 const TAU = Math.PI * 2
 
@@ -30,6 +29,11 @@ export interface Layout {
 
 export function playButton(l: Layout): { x: number; y: number; r: number } {
   return { x: l.w / 2, y: l.h * 0.784, r: TUNING.shell.playButtonRadius }
+}
+
+/** N1 — the title's play target: an asteroid sitting where the station will be. */
+export function titlePlayButton(l: Layout): { x: number; y: number; r: number } {
+  return { x: l.w / 2, y: l.h * TUNING.station.yFrac, r: TUNING.shell.playButtonRadius }
 }
 
 export function doneButton(l: Layout): { x: number; y: number; r: number } {
@@ -124,7 +128,8 @@ function gear(ctx: CanvasRenderingContext2D, l: Layout): void {
 
 // --- screens ---------------------------------------------------------------
 
-/** Title — PULL, best, one button. The station just sits there. (24b) */
+/** Title — PULL, best, and a live drifting field. The play target is itself
+ *  an asteroid, centred where the station will be. (N1 + L5) */
 export function drawTitle(ctx: CanvasRenderingContext2D, l: Layout, t: number): void {
   ctx.textAlign = 'center'
   ctx.textBaseline = 'alphabetic'
@@ -142,12 +147,10 @@ export function drawTitle(ctx: CanvasRenderingContext2D, l: Layout, t: number): 
     drawTracked(ctx, `BEST ${game.best}`, l.w / 2 + 1.2, l.safeTop + l.h * 0.214, 2.4)
   }
 
-  drawEmblemStation(ctx, l.w / 2, l.h * TUNING.station.titleYFrac, 1)
+  const b = titlePlayButton(l)
+  drawPlayRock(ctx, b.x, b.y, t)
 
-  const b = playButton(l)
-  circleButton(ctx, b.x, b.y, b.r, 'PLAY', 15, 3)
-
-  // pressing PLAY does the gravity animation — a circle closing on the button
+  // pressing PLAY does the gravity animation — a circle closing on the rock
   if (ui.playPressed) {
     const el = t - ui.playPressT
     ctx.strokeStyle = PAL.rock
@@ -164,6 +167,44 @@ export function drawTitle(ctx: CanvasRenderingContext2D, l: Layout, t: number): 
   }
 
   gear(ctx, l)
+}
+
+/** The asteroid-styled PLAY target: the monolith outline, doubled, with the
+ *  label riding level inside while the rock idles around it. */
+function drawPlayRock(ctx: CanvasRenderingContext2D, x: number, y: number, t: number): void {
+  const T = TUNING.title
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(t * T.playSpin)
+  ctx.scale(T.playRockScale, T.playRockScale)
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.shadowColor = 'rgba(159,214,232,0.45)'
+  ctx.shadowBlur = 8
+  ctx.strokeStyle = PAL.rockLit
+  ctx.lineWidth = 2.4 / T.playRockScale
+  poly(ctx, [-26, -6, -20, -20, 0, -28, 22, -15], false)
+  ctx.stroke()
+  ctx.strokeStyle = rgba(PAL.rockDark, 0.8)
+  ctx.lineWidth = 1.2 / T.playRockScale
+  poly(ctx, [22, -15, 27, 10, 6, 27, -20, 19, -26, -6], false)
+  ctx.stroke()
+  ctx.shadowBlur = 0
+  ctx.restore()
+
+  ctx.fillStyle = PAL.rockLit
+  ctx.font = `15px ${FONT_LABEL}`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  drawTracked(ctx, 'PLAY', x, y + 1, 3)
+  ctx.textBaseline = 'alphabetic'
+}
+
+function poly(g: CanvasRenderingContext2D, pts: number[], close: boolean): void {
+  g.beginPath()
+  g.moveTo(pts[0], pts[1])
+  for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1])
+  if (close) g.closePath()
 }
 
 /** Paused — the phone pauses you, not a button. Field is drawn by the

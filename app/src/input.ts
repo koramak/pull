@@ -10,7 +10,7 @@ import { settings, saveSettings, resetRecords } from './storage'
 import { upgrade } from './upgrade'
 import type { PointerState } from './sim/sim'
 import type { Renderer } from './render/renderer'
-import { ui, playButton, doneButton, gearButton, settingsRows, hitCircle } from './render/screens'
+import { ui, playButton, titlePlayButton, doneButton, gearButton, settingsRows, hitCircle } from './render/screens'
 
 export const pointer: PointerState = { active: false, x: 0, y: 0 }
 
@@ -35,7 +35,7 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
 
     switch (game.phase) {
       case 'title': {
-        if (hitCircle(p.x, p.y, playButton(l))) {
+        if (hitCircle(p.x, p.y, titlePlayButton(l))) {
           ui.playPressed = true
           ui.playPressT = performance.now() / 1000
         } else if (hitCircle(p.x, p.y, gearButton(l))) {
@@ -108,6 +108,7 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
 
   const release = (e: PointerEvent): void => {
     if (e.pointerId !== ownerId) return
+    initAudio() // S5 — gesture-end is the reliable unlock on iOS
     ownerId = null
     inputState.anyPointerDown = false
     pointer.active = false
@@ -117,7 +118,7 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
       ui.playPressed = false
       const p = toWorld(e)
       const l = renderer.layout()
-      if (hitCircle(p.x, p.y, playButton(l))) startRun()
+      if (hitCircle(p.x, p.y, titlePlayButton(l))) startRun()
     } else {
       ui.playPressed = false
     }
