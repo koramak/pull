@@ -35,6 +35,12 @@ Phases 0–3 of the build program are **implemented, verified, and deployed**
   L6 shareable result, F5 near-miss slow-mo, F6 rolling counter + chip
   flights, F7 phosphor burns, F9 station flinch, S3 intensity-driven hum.
 
+A 2026-08-01 evening session was **process-only** (no game code): CLAUDE.md
+rebuilt as an environment-aware bootstrap (Mac vs cloud tooling, three-command
+state check), `docs/pull-lessons.md` created (mistake→fix log; skim at start,
+append the moment you solve one — Zane's standing rule), this doc's
+dev-workflow section corrected, repo-local git identity set on the Mac.
+
 ## Parked / not built (deliberate rulings — do not build without Zane)
 
 M7 (teach release), all of section 6 (X1–X4: no mercy, no rubber-banding),
@@ -45,6 +51,13 @@ leaderboard if it returns).
 
 ## Next: Phase 4 (native wrap) + open questions for Zane
 
+0. **Awaiting Zane's rulings (asked 2026-08-01):** (a) tuning pass first vs
+   starting Phase 4 wrap — lead recommended tuning first since F10's
+   tap-pulse and the haptics map interact with feel tuning; the F10 web-side
+   parts (coalesced events, desynchronized canvas) are wrap-independent and
+   could land early either way. (b) Install Node on the Mac, or keep build
+   work in cloud sessions? Resolved: `DELETE ME/` stays until Zane deletes
+   it himself.
 1. **C2 on-device check (needs Zane's phone):** open the live game with
    `?debug`, report the fps number at high object counts. If it dips:
    pre-bake the remaining live `shadowBlur` glows (score text, core, well
