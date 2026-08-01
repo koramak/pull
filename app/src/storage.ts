@@ -47,7 +47,8 @@ const K = {
   haptics: 'pull.haptics',
   reduceMotion: 'pull.reduceMotion',
   seenFirstRun: 'pull.seenFirstRun',
-  savedRun: 'pull.savedRun'
+  savedRun: 'pull.savedRun',
+  fullHint: 'pull.fullHint'
 } as const
 
 // --- settings (live object; write-through) ---------------------------------
@@ -103,6 +104,18 @@ export function pushRun(r: RunRecord): void {
 export function resetRecords(): void {
   store.remove(K.best)
   store.remove(K.runs)
+}
+
+// --- teaching hints --------------------------------------------------------
+
+/** M2 — how many times the full-reservoir wager line has been shown. */
+export function loadFullHintCount(): number {
+  const n = parseInt(store.get(K.fullHint) ?? '0', 10)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+export function markFullHintShown(): void {
+  store.set(K.fullHint, String(loadFullHintCount() + 1))
 }
 
 // --- first run -------------------------------------------------------------

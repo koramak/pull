@@ -5,13 +5,13 @@
 export interface EventMap {
   runStart: void
   spawn: { kind: string; x: number; y: number }
-  smash: { x: number; y: number; bothRocks: boolean }
+  smash: { x: number; y: number; bothRocks: boolean; nearStation: boolean }
   /** Rubble coming apart on a graze — quieter than a smash. */
   crumble: { x: number; y: number }
   bank: { x: number; y: number; score: number; doubled: boolean }
   reservoirFull: void
   hullHit: { sectionsBefore: number; alive: number; x: number; y: number; angle: number }
-  oreSpill: { amount: number }
+  oreSpill: { amount: number; x: number; y: number }
   deflect: { x: number; y: number }
   nearMiss: { x: number; y: number; gap: number; angle: number }
   shipShot: { x0: number; y0: number; x1: number; y1: number; broke: boolean }

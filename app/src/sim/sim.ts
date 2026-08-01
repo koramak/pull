@@ -48,6 +48,8 @@ export class Sim {
   freezeT = 0
   /** True while one section from death — full-alarm flag layered on RUN. */
   hullCritical = false
+  /** F1 — well strength envelope 0..1: attack on touch, release-decay on lift. */
+  wellPower = 0
 
   private accumulator = 0
   private stepCounter = 0
@@ -74,6 +76,7 @@ export class Sim {
     this.stepCounter = 0
     this.freezeT = 0
     this.hullCritical = false
+    this.wellPower = 0
   }
 
   /** Clear the live field but keep the station build (restored runs). */
@@ -123,11 +126,19 @@ export class Sim {
     }
 
     // --- gravity well + integration ---
-    const wellOn = pointer.active
-    const strength = TUNING.well.strength
-    const softening = TUNING.well.softening
-    const maxA = TUNING.well.maxAccel
-    const touchA = TUNING.well.touchAccel
+    // F1 — the grab: strength envelope ramps in with ease-out on touch and
+    // decays after release, so the force feels physical and a thumb slip
+    // mid-slingshot keeps the curve alive for a beat.
+    const W = TUNING.well
+    if (pointer.active) this.wellPower = Math.min(1, this.wellPower + dt / W.attack)
+    else this.wellPower = Math.max(0, this.wellPower - dt / W.release)
+    const p = this.wellPower
+    const envelope = 1 - (1 - p) * (1 - p) // smooth-stop: fast start, soft landing
+    const wellOn = envelope > 0.002
+    const strength = W.strength
+    const softening = W.softening
+    const maxA = W.maxAccel
+    const touchA = W.touchAccel
     this.stepCounter++
     const record = (this.stepCounter & 1) === 0 // 60Hz history for echoes
 
@@ -142,6 +153,7 @@ export class Sim {
         const d = Math.sqrt(d2) || 1
         let a = strength / (d2 + softening)
         if (a > maxA) a = maxA
+        a *= envelope
         o.vx += (dx / d) * a * dt
         o.vy += (dy / d) * a * dt
         if (a > touchA) o.touched = true
@@ -150,6 +162,7 @@ export class Sim {
       o.y += o.vy * dt
       o.rot += o.rs * dt
       if (o.hitFlash > 0) o.hitFlash -= dt
+      if (o.squashT > 0) o.squashT -= dt
       if (record) pushHistory(o)
     }
 
@@ -198,8 +211,8 @@ export class Sim {
     const my = (a.y + b.y) / 2
 
     if (rel > TUNING.collision.smashSpeed) {
-      // The smash: 42ms hit-stop, two thin white rings, the pair is replaced
-      // by the next class down, shards spinning out hard.
+      // The smash: tiered hit-stop, two thin white rings, the pair is
+      // replaced by the next class down, shards spinning out hard.
       const bothRocks = isRock(a.kind) && isRock(b.kind)
       if (bothRocks) {
         game.score += TUNING.score.smash
@@ -209,8 +222,11 @@ export class Sim {
       this.fragment(b)
       a.dead = true
       b.dead = true
-      this.hitStop(TUNING.smash.hitStop)
-      emit('smash', { x: mx, y: my, bothRocks })
+      this.hitStop(TUNING.hitStops.smash)
+      const sdx = mx - this.station.x
+      const sdy = my - this.station.y
+      const near = sdx * sdx + sdy * sdy < TUNING.trauma.smashNearRadius * TUNING.trauma.smashNearRadius
+      emit('smash', { x: mx, y: my, bothRocks, nearStation: near })
     } else {
       // Rubble comes apart on a graze — matter, not mass.
       let crumbled = false
@@ -231,6 +247,9 @@ export class Sim {
       b.y += ny * overlap
       const tvx = a.vx; a.vx = b.vx; b.vx = tvx
       const tvy = a.vy; a.vy = b.vy; b.vy = tvy
+      // F2 — contact reads as material: both parties squash for a beat
+      a.squashT = TUNING.feel.squashDur
+      b.squashT = TUNING.feel.squashDur
     }
   }
 
@@ -288,8 +307,17 @@ export class Sim {
       }
       const target = this.findThreat(ship.x, ship.y)
       if (target) {
-        target.hp--
+        // N3 — shots act: real damage (a medium breaks outright) plus a
+        // shove along the tracer, so even a surviving rock is visibly hit.
+        target.hp -= S.damage
         target.hitFlash = S.hitFlash
+        target.wounded = true
+        const kdx = target.x - ship.x
+        const kdy = target.y - ship.y
+        const kd = Math.hypot(kdx, kdy) || 1
+        target.vx += (kdx / kd) * S.knockback
+        target.vy += (kdy / kd) * S.knockback
+        target.squashT = TUNING.feel.squashDur
         ship.cooldown = S.reload
         ship.tracerT = S.tracerDuration
         ship.tx = target.x
@@ -310,24 +338,30 @@ export class Sim {
     }
   }
 
-  /** Nearest cool rock on a collision course with the station, in range. */
+  /** Nearest cool rock on a collision course with the station, in range —
+   *  or, failing that, a wounded rock: the knockback of the first shot tends
+   *  to shove targets off course, and ships finish what they start (N3). */
   private findThreat(fromX: number, fromY: number): GameObject | null {
-    const st = this.station
     const S = TUNING.ships
     let best: GameObject | null = null
     let bestD: number = S.range
+    let wounded: GameObject | null = null
+    let woundedD: number = S.range
     for (let i = 0; i < this.pool.count; i++) {
       const o = this.pool.objs[i]
       if (!isRock(o.kind) || o.dead) continue
       const dx = o.x - fromX
       const dy = o.y - fromY
       const d = Math.hypot(dx, dy)
-      if (d >= bestD) continue
-      if (!this.onCollisionCourse(o)) continue
-      best = o
-      bestD = d
+      if (d >= bestD && d >= woundedD) continue
+      if (this.onCollisionCourse(o)) {
+        if (d < bestD) { best = o; bestD = d }
+      } else if (o.wounded && d < woundedD) {
+        wounded = o
+        woundedD = d
+      }
     }
-    return best
+    return best ?? wounded
   }
 
   private onCollisionCourse(o: GameObject): boolean {
@@ -413,6 +447,7 @@ export class Sim {
     game.oreTotal += R.unitsPerBank
     const wasFull = st.reservoirFull()
     st.reservoir = Math.min(st.reservoirCap, st.reservoir + R.unitsPerBank)
+    this.hitStop(TUNING.hitStops.bank) // F3 — a beat of weight on the swallow
     emit('bank', { x: st.x, y: st.y, score: gain, doubled })
     if (!wasFull && st.reservoirFull()) emit('reservoirFull', undefined)
   }
@@ -424,11 +459,13 @@ export class Sim {
     if (sec < 0) return
     const spilled = Math.round(st.reservoir * TUNING.reservoir.spillFraction)
     st.reservoir -= spilled
-    this.hitStop(TUNING.hullHit.hitStop)
+    // F3 — your worst event stops the world hardest. On the killing hit the
+    // freeze bleeds into the collapse timescale (×0.3) → ~400ms real stop.
+    this.hitStop(TUNING.hitStops.hull)
     const alive = st.aliveCount()
     this.hullCritical = alive === 1
     emit('hullHit', { sectionsBefore, alive, x: st.x, y: st.y, angle })
-    if (spilled > 0) emit('oreSpill', { amount: spilled })
+    if (spilled > 0) emit('oreSpill', { amount: spilled, x: st.x, y: st.y })
     if (alive <= 0) {
       game.pendingCollapse = true
       beginCollapse()

@@ -9,7 +9,8 @@ import { SystemRNG } from './rng'
 import { Sim } from './sim/sim'
 import { Renderer } from './render/renderer'
 import { initInput, updateInput, pointer, releasePointer, inputState } from './input'
-import { initAudioEvents } from './audio'
+import { initAudioEvents, resumeAudio } from './audio'
+import { MONOLITH, MEDIUM, SHARD } from './sim/pool'
 import { initHaptics } from './haptics'
 import { initFx, updateFx, clearFx } from './fx/fx'
 import { intensity } from './intensity'
@@ -45,7 +46,10 @@ window.addEventListener('orientationchange', resize)
 // The phone pauses you, not a button (kit 24c) — and the run survives an
 // app switch for five minutes.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) return
+  if (!document.hidden) {
+    resumeAudio() // iOS can leave the context "interrupted" after a switch
+    return
+  }
   if (game.phase === 'run' || game.phase === 'choice' || game.phase === 'firstrun') {
     saveRun(sim)
     releasePointer()
@@ -88,6 +92,27 @@ else setPhase('title')
 // Choice bookkeeping: where to return after the freeze (run vs firstrun).
 let choiceFrom: 'run' | 'firstrun' = 'run'
 let choiceArm = 0
+
+// N1/L5 — title attract field: slow drifters aimed loosely across mid-screen.
+let attractTimer = 0
+
+function updateAttract(dt: number): void {
+  const T = TUNING.title
+  attractTimer -= dt
+  if (attractTimer <= 0 && sim.pool.count < T.attractMax) {
+    const roll = sim.rng.next()
+    const kind = roll < 0.18 ? MONOLITH : roll < 0.62 ? MEDIUM : SHARD
+    const aimX = sim.width * (0.3 + sim.rng.next() * 0.4)
+    const aimY = sim.height * (0.3 + sim.rng.next() * 0.4)
+    sim.spawner.spawnKind(kind, sim.pool, sim.rng, sim.width, sim.height, aimX, aimY, {
+      speed: T.attractSpeedMin + sim.rng.next() * (T.attractSpeedMax - T.attractSpeedMin),
+      spread: T.attractSpread
+    })
+    attractTimer = T.attractEvery * (0.7 + sim.rng.next() * 0.6)
+  }
+  // integrate + cull only — the phase gates station contact and the clock
+  sim.frame(dt, pointer, false)
+}
 
 let last = performance.now()
 
@@ -133,6 +158,8 @@ function frame(now: number): void {
       setLastSections(sim.station.sections)
       finishCollapse(sim.station.sections)
     }
+  } else if (phase === 'title') {
+    updateAttract(dt)
   }
 
   // The upgrade timeline runs through choice AND the surge/build that play

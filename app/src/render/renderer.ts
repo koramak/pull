@@ -16,7 +16,7 @@ import { fx, hullFlickerAlpha, hullTearOffset } from '../fx/fx'
 import { intensity } from '../intensity'
 import { upgrade } from '../upgrade'
 import { firstRun } from '../firstrun'
-import { readHistory } from '../sim/pool'
+import { readHistory, ORE } from '../sim/pool'
 import type { Sim, PointerState } from '../sim/sim'
 import { PAL, FONT_NUM, FONT_LABEL, rgba } from './palette'
 import { SpriteSet, drawDart } from './sprites'
@@ -54,6 +54,7 @@ export class Renderer {
   private crtEl: HTMLElement | null = null
   private vigEl: HTMLElement | null = null
   private wobblePhase = 0
+  private timeNow = 0
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!
@@ -99,6 +100,7 @@ export class Renderer {
 
     const wellActive = pointer.active && (phase === 'run' || phase === 'firstrun' || phase === 'collapse')
     this.well.update(dt, wellActive)
+    this.timeNow = t
 
     ctx.setTransform(px, 0, 0, px, 0, 0)
     ctx.fillStyle = PAL.bg
@@ -119,11 +121,13 @@ export class Renderer {
     this.stars.draw(ctx, t, sim.station.x, sim.station.y, starAlpha)
 
     // --- the field ---------------------------------------------------------
-    const inField = phase === 'run' || phase === 'firstrun' || phase === 'choice' || phase === 'paused' || phase === 'collapse'
+    // N1/L5 — the title is a live field too: drifters behind the shell type
+    const inField = phase === 'run' || phase === 'firstrun' || phase === 'choice' || phase === 'paused' || phase === 'collapse' || phase === 'title'
     if (inField) {
       const fieldAlpha =
         phase === 'paused' ? TUNING.choice.freezeDim :
         phase === 'collapse' ? this.collapseDim() :
+        phase === 'title' ? TUNING.title.fieldAlpha :
         upgrade.active() ? upgrade.dim() : 1
 
       const tear = hullTearOffset()
@@ -161,8 +165,10 @@ export class Renderer {
     }
 
     // --- floats + HUD ------------------------------------------------------
-    if (inField) {
+    if (inField && phase !== 'title') {
       this.drawFloats(ctx)
+      // the wager hint belongs to live play — never over the choice plates
+      if (phase === 'run' || phase === 'firstrun') this.drawHint(ctx, sim)
       this.drawScore(ctx, l, phase === 'collapse' ? Math.max(0, 1 - game.phaseT / 1.2) : 1)
     }
 
@@ -178,8 +184,9 @@ export class Renderer {
     if (phase === 'firstrun') this.drawFirstRunHints(ctx, pointer, t)
 
     // --- DOM tube dressing -------------------------------------------------
-    const scanA = inField ? intensity.scanAlpha() : 0.32
-    const vig = inField ? intensity.vignetteInner() : 0.58
+    const dressed = inField && phase !== 'title'
+    const scanA = dressed ? intensity.scanAlpha() : 0.32
+    const vig = dressed ? intensity.vignetteInner() : 0.58
     if (Math.abs(scanA - this.lastScan) > 0.005 && this.crtEl) {
       this.lastScan = scanA
       this.crtEl.style.opacity = String(scanA)
@@ -197,23 +204,26 @@ export class Renderer {
     const st = sim.station
     ctx.save()
 
-    // shake + late-run wobble
-    let ox = 0
-    let oy = 0
-    if (fx.shake > 0.05 && !settings.reduceMotion) {
-      ox = (Math.random() - 0.5) * fx.shake
-      oy = (Math.random() - 0.5) * fx.shake
-    }
+    // F4 — trauma shake: coherent-noise offsets plus a little roll about the
+    // station (rotation sells impact at phone size), and the late-run wobble
+    let ox = fx.shakeX
+    let oy = fx.shakeY
     if (intensity.wobbleOn() && !settings.reduceMotion && game.phase !== 'paused') {
       this.wobblePhase += dt
       if (this.wobblePhase > TUNING.intensity.wobblePeriod) this.wobblePhase = 0
       if (this.wobblePhase < 0.09) ox += TUNING.intensity.wobblePx
     }
+    if (fx.shakeRoll !== 0) {
+      ctx.translate(st.x, st.y)
+      ctx.rotate(fx.shakeRoll)
+      ctx.translate(-st.x, -st.y)
+    }
     ctx.translate(ox, oy)
 
     const bloom = intensity.bloomMul()
     const flicker = hullFlickerAlpha()
-    const hideStation = game.phase === 'collapse' && game.phaseT > 0.9
+    const onTitle = game.phase === 'title'
+    const hideStation = onTitle || (game.phase === 'collapse' && game.phaseT > 0.9)
 
     // station
     if (!hideStation) {
@@ -233,7 +243,7 @@ export class Renderer {
 
     // ships + tracers
     const newestShip = st.ships.length - 1
-    for (let i = 0; i < st.ships.length; i++) {
+    for (let i = 0; i < (onTitle ? 0 : st.ships.length); i++) {
       const ship = st.ships[i]
       let scl = 1
       if (upgrade.buildTrack === 'ships' && i === newestShip && upgrade.buildT >= 0 && upgrade.buildT < TUNING.choice.build) {
@@ -279,19 +289,43 @@ export class Renderer {
       ctx.globalAlpha = 1
     }
 
-    // objects
+    // objects — F2: stretch along velocity (area-conserving), squash on
+    // contact, and an idle shimmer on ore so the eye finds the reward
+    const F = TUNING.feel
     for (let i = 0; i < sim.pool.count; i++) {
       const o = sim.pool.objs[i]
       const sprite = this.sprites.lit.get(o.kind)
       if (!sprite) continue
       const rx = o.px + (o.x - o.px) * sim.alpha
       const ry = o.py + (o.y - o.py) * sim.alpha
+
+      let axis = 0
+      let sAlong = 1
+      let sCross = 1
+      const speed = Math.hypot(o.vx, o.vy)
+      if (speed > 40) {
+        const e = Math.min(F.stretchMax, F.stretchK * (speed / F.stretchRefSpeed))
+        axis = Math.atan2(o.vy, o.vx)
+        sAlong = 1 + e
+        sCross = 1 / (1 + e)
+      }
+      if (o.squashT > 0) {
+        const q = Math.max(0, Math.min(1, o.squashT / F.squashDur))
+        const s = Math.sin(q * Math.PI) * F.squashAmt
+        sAlong *= 1 - s
+        sCross *= 1 - s * 0.4
+      }
+      let base = o.r / sprite.nominal
+      if (o.kind === ORE) {
+        base *= 1 + F.oreShimmerAmp * Math.sin(this.timeNow * F.oreShimmerHz * TAU + o.seed)
+      }
+
       ctx.globalAlpha = fieldAlpha
-      this.blitSprite(ctx, sprite, rx, ry, o.rot, o.r / sprite.nominal)
+      this.blitSprite(ctx, sprite, rx, ry, o.rot, base, axis, sAlong, sCross)
       if (o.hitFlash > 0) {
         ctx.globalCompositeOperation = 'lighter'
         ctx.globalAlpha = fieldAlpha * (o.hitFlash / TUNING.ships.hitFlash) * 0.8
-        this.blitSprite(ctx, sprite, rx, ry, o.rot, o.r / sprite.nominal)
+        this.blitSprite(ctx, sprite, rx, ry, o.rot, base, axis, sAlong, sCross)
         ctx.globalCompositeOperation = 'source-over'
       }
     }
@@ -311,21 +345,48 @@ export class Renderer {
       ctx.setLineDash([])
     }
 
-    // the well — on, or gone
+    // the well — on, or decaying out with the F1 release envelope
     if (pointer.active || this.well.liveCount() > 0) {
-      this.well.draw(ctx, pointer.x, pointer.y, fieldAlpha)
+      const wellAlpha = fieldAlpha * (pointer.active ? 1 : Math.max(0.25, sim.wellPower))
+      this.well.draw(ctx, pointer.x, pointer.y, wellAlpha)
     }
 
     ctx.restore()
   }
 
-  private blitSprite(ctx: CanvasRenderingContext2D, s: { canvas: HTMLCanvasElement; half: number; nominal: number }, x: number, y: number, rot: number, scale: number): void {
+  private blitSprite(
+    ctx: CanvasRenderingContext2D,
+    s: { canvas: HTMLCanvasElement; half: number; nominal: number },
+    x: number, y: number, rot: number, scale: number,
+    axis = 0, sAlong = 1, sCross = 1
+  ): void {
     ctx.save()
     ctx.translate(x, y)
-    ctx.rotate(rot)
+    if (sAlong !== 1 || sCross !== 1) {
+      // deformation lives in the velocity frame; the sprite spins inside it
+      ctx.rotate(axis)
+      ctx.scale(sAlong, sCross)
+      ctx.rotate(rot - axis)
+    } else {
+      ctx.rotate(rot)
+    }
     if (scale !== 1) ctx.scale(scale, scale)
     ctx.drawImage(s.canvas, -s.half, -s.half, s.half * 2, s.half * 2)
     ctx.restore()
+  }
+
+  /** M2 — the wager line under the station, first two fills only. */
+  private drawHint(ctx: CanvasRenderingContext2D, sim: Sim): void {
+    const h = fx.hint
+    if (!h) return
+    const f = h.t / h.dur
+    const a = f < 0.12 ? f / 0.12 : f > 0.78 ? Math.max(0, (1 - f) / 0.22) : 1
+    ctx.globalAlpha = a
+    ctx.font = `12px ${FONT_LABEL}`
+    ctx.textAlign = 'center'
+    ctx.fillStyle = PAL.rockLit
+    ctx.fillText(h.text, sim.station.x, sim.station.y + 118)
+    ctx.globalAlpha = 1
   }
 
   private drawFieldFx(ctx: CanvasRenderingContext2D, sim: Sim, fieldAlpha: number): void {

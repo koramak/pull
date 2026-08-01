@@ -42,7 +42,14 @@ export class StationDraw {
     alpha: number,
     bloomMul: number
   ): void {
-    const R = TUNING.station.coreRadius // 18
+    // F2/F9 — the gulp: the core ring squeezes for a beat as it swallows
+    const G = TUNING.feel
+    let coreScale = 1
+    if (bankT >= 0 && bankT < G.gulpDur) {
+      const q = bankT / G.gulpDur
+      coreScale = 1 - G.gulpAmt * Math.sin(q * Math.PI)
+    }
+    const R = TUNING.station.coreRadius * coreScale // 18 at rest
     const fillR = 16
     const target = st.fillFrac()
     this.displayFill += (target - this.displayFill) * Math.min(1, dt * (target < this.displayFill ? 10 : 6))
