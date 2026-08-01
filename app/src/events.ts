@@ -4,20 +4,27 @@
 
 export interface EventMap {
   runStart: void
-  spawn: { type: 'rock' | 'ore'; x: number; y: number }
+  spawn: { kind: string; x: number; y: number }
   smash: { x: number; y: number; bothRocks: boolean }
-  bank: { x: number; y: number; score: number }
-  hullHit: { hull: number; x: number; y: number }
+  /** Rubble coming apart on a graze — quieter than a smash. */
+  crumble: { x: number; y: number }
+  bank: { x: number; y: number; score: number; doubled: boolean }
+  reservoirFull: void
+  hullHit: { sectionsBefore: number; alive: number; x: number; y: number; angle: number }
+  oreSpill: { amount: number }
   deflect: { x: number; y: number }
-  death: { score: number; best: number; newBest: boolean }
+  nearMiss: { x: number; y: number; gap: number; angle: number }
+  shipShot: { x0: number; y0: number; x1: number; y1: number; broke: boolean }
+  choiceOpen: void
+  choiceLock: { track: 'capacity' | 'hull' | 'ships' }
+  surge: void
+  collapse: { score: number; best: number; newBest: boolean }
   pause: void
   resume: void
 }
 
 type Listener<K extends keyof EventMap> = (payload: EventMap[K]) => void
 
-// Internally untyped store; the generic signatures on on/emit keep the
-// public surface fully typed.
 const listeners: Partial<Record<keyof EventMap, Array<(payload: never) => void>>> = {}
 
 export function on<K extends keyof EventMap>(event: K, fn: Listener<K>): () => void {

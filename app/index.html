@@ -25,25 +25,35 @@
     -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
   }
-  canvas { display: block; width: 100vw; height: 100vh; }
-  /* CRT dressing: scanlines + vignette, DOM-composited so it costs the
-     canvas nothing. Kept faint — legibility of play objects wins. */
+  canvas {
+    display: block; width: 100vw; height: 100vh;
+    /* the tube breathes — sub-perceptual */
+    animation: ph-breathe 6s ease-in-out infinite;
+  }
+  /* CRT dressing, DOM-composited so it costs the canvas nothing.
+     Scanlines: 1px dark line every 3px (kit: rgba(0,0,0,.32) 0-1px / 3px),
+     drifting one pitch on a stepped clock. Opacity + vignette stop are
+     driven per-frame by the intensity ramp (22a-22d). */
   #crt {
-    position: fixed; inset: 0; pointer-events: none; z-index: 2;
+    position: fixed; inset: -4px; pointer-events: none; z-index: 2;
     background: repeating-linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, 0.16) 0px,
-      rgba(0, 0, 0, 0.16) 1px,
+      0deg,
+      rgba(0, 0, 0, 1) 0px,
+      rgba(0, 0, 0, 1) 1px,
       transparent 1px,
       transparent 3px
     );
-    opacity: 0.35;
+    opacity: 0.32;
+    animation: ph-scan 1.4s steps(3, end) infinite;
   }
   #vignette {
     position: fixed; inset: 0; pointer-events: none; z-index: 1;
-    background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.38) 100%);
+    background: radial-gradient(110% 100% at 50% 50%, transparent 58%, rgba(0, 0, 0, 0.5));
   }
   #probe { position: absolute; top: var(--sat); left: 0; width: 0; height: 0; visibility: hidden; }
+  @keyframes ph-breathe { 0%, 100% { opacity: .97 } 45% { opacity: 1 } 62% { opacity: .94 } }
+  @keyframes ph-scan { 0% { transform: translateY(0) } 100% { transform: translateY(3px) } }
+  .reduce-motion canvas, .reduce-motion #crt { animation: none; }
 </style>
 </head>
 <body>

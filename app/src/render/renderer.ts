@@ -1,480 +1,646 @@
-// Canvas 2D renderer. Consumes sim state read-only, interpolating object
-// positions between fixed steps. Carries the "gold core" art direction:
-// teal station whose ring sections ARE the hull, gold hex ore, violet well.
+// Canvas 2D renderer — the phosphor tube. Consumes sim state read-only,
+// interpolating between fixed steps. Everything emits, nothing reflects:
+// wireframe objects with baked bloom, the rotating starfield, the station
+// whose ring IS the hull meter, the 31a well, 13e echoes under the finger,
+// the smash's white rings, the hull-hit tear, and the CRT power-off death.
+//
+// Perf shape (kit "HOW THIS GETS DRAWN"): bloom is baked into sprites or
+// drawn as capped shadowBlur strokes (~30/frame worst case); starfield and
+// station structure are offscreen buffers; scanlines + vignette live in DOM
+// so they cost the canvas nothing; the intensity ramp is one float.
 
 import { TUNING } from '../config'
 import { game } from '../state'
-import { particles, floats, wellParticles, fxState } from '../fx/fx'
-import { PAL, FONT_STACK } from './palette'
-import { Starfield } from './starfield'
+import { settings } from '../storage'
+import { fx, hullFlickerAlpha, hullTearOffset } from '../fx/fx'
+import { intensity } from '../intensity'
+import { upgrade } from '../upgrade'
+import { firstRun } from '../firstrun'
+import { readHistory } from '../sim/pool'
 import type { Sim, PointerState } from '../sim/sim'
-import { ORE } from '../sim/pool'
+import { PAL, FONT_NUM, FONT_LABEL, rgba } from './palette'
+import { SpriteSet, drawDart } from './sprites'
+import { Starfield } from './starfield'
+import { StationDraw } from './stationDraw'
+import { WellFx } from './well'
+import {
+  drawTitle, drawPaused, drawResult, drawSettings, drawChoice,
+  type Layout
+} from './screens'
 
 const TAU = Math.PI * 2
-const DASH: number[] = [10, 14]
-const NO_DASH: number[] = []
-
-// Trail stroke batches: oldest -> newest thirds (width, alpha applied per type)
-const TRAIL_BATCHES = [
-  { frac0: 0, frac1: 0.34, width: 0.35, alpha: 0.22 },
-  { frac0: 0.34, frac1: 0.67, width: 0.65, alpha: 0.5 },
-  { frac0: 0.67, frac1: 1, width: 1, alpha: 1 }
-]
-const TRAIL_ROCK = ['rgba(141,153,174,0.11)', 'rgba(141,153,174,0.25)', 'rgba(141,153,174,0.5)']
-const TRAIL_ORE = ['rgba(255,226,63,0.13)', 'rgba(255,226,63,0.3)', 'rgba(255,226,63,0.6)']
-
-function makeGlow(color: string, radius: number): HTMLCanvasElement {
-  const c = document.createElement('canvas')
-  c.width = c.height = radius * 2
-  const g = c.getContext('2d')!
-  const grad = g.createRadialGradient(radius, radius, 0, radius, radius, radius)
-  grad.addColorStop(0, color)
-  grad.addColorStop(1, 'rgba(0,0,0,0)')
-  g.fillStyle = grad
-  g.fillRect(0, 0, radius * 2, radius * 2)
-  return c
-}
+const ECHO_BACK = [5, 10, 14] // 60Hz history samples ≈ 80/160/240ms
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D
+  private fieldCanvas: HTMLCanvasElement
+  private fieldCtx: CanvasRenderingContext2D
+  private sprites = new SpriteSet()
   private stars = new Starfield()
-  private W = 1
+  private stationDraw = new StationDraw()
+  well = new WellFx()
+
+  private W = 1          // css px
   private H = 1
-  private safeTop = 0
-  private wellEase = 0
-  private spinA = 0
-  private glowTeal: HTMLCanvasElement
-  private glowViolet: HTMLCanvasElement
-  private glowGold: HTMLCanvasElement
-  private scoreStr = '0'
-  private lastScore = -1
-  private bestStr = ''
-  private lastBest = -1
+  private dpr = 1
+  scale = 1              // world→css
+  worldW = 1
+  worldH = 1
+  safeTop = 0            // world units
+
+  private histBuf = new Float32Array(3)
+  private lastScan = -1
+  private lastVig = -1
+  private crtEl: HTMLElement | null = null
+  private vigEl: HTMLElement | null = null
+  private wobblePhase = 0
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!
-    this.glowTeal = makeGlow('rgba(94,242,214,0.28)', 70)
-    this.glowViolet = makeGlow('rgba(192,140,255,0.30)', 85)
-    this.glowGold = makeGlow('rgba(255,226,63,0.35)', 60)
+    this.fieldCanvas = document.createElement('canvas')
+    this.fieldCtx = this.fieldCanvas.getContext('2d')!
+    this.crtEl = document.getElementById('crt')
+    this.vigEl = document.getElementById('vignette')
   }
 
-  resize(w: number, h: number, dpr: number, safeTop: number): void {
+  resize(w: number, h: number, dpr: number, safeTopCss: number): void {
     this.W = w
     this.H = h
-    this.safeTop = safeTop
+    this.dpr = dpr
+    const L = TUNING.layout
+    this.scale = Math.max(L.minScale, Math.min(L.maxScale, Math.min(w / L.refWidth, h / L.refHeight)))
+    this.worldW = w / this.scale
+    this.worldH = h / this.scale
+    this.safeTop = safeTopCss / this.scale
     this.canvas.width = Math.round(w * dpr)
     this.canvas.height = Math.round(h * dpr)
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    this.stars.regenerate(w, h)
+    this.fieldCanvas.width = this.canvas.width
+    this.fieldCanvas.height = this.canvas.height
+    const px = dpr * this.scale
+    this.stars.regenerate(this.worldW, this.worldH, px)
+    this.sprites.bake(px)
   }
+
+  toWorld(cssX: number, cssY: number): { x: number; y: number } {
+    return { x: cssX / this.scale, y: cssY / this.scale }
+  }
+
+  layout(): Layout {
+    return { w: this.worldW, h: this.worldH, safeTop: this.safeTop }
+  }
+
+  // -------------------------------------------------------------------------
 
   draw(sim: Sim, pointer: PointerState, dt: number, now: number): void {
     const ctx = this.ctx
     const t = now / 1000
-    this.spinA += dt
+    const px = this.dpr * this.scale
+    const phase = game.phase
 
-    const wellVisible = pointer.active && (game.phase === 'play' || game.phase === 'dying')
-    const easeTarget = wellVisible ? 1 : 0
-    this.wellEase += (easeTarget - this.wellEase) * Math.min(1, dt * 18)
+    const wellActive = pointer.active && (phase === 'run' || phase === 'firstrun' || phase === 'collapse')
+    this.well.update(dt, wellActive)
 
+    ctx.setTransform(px, 0, 0, px, 0, 0)
     ctx.fillStyle = PAL.bg
-    ctx.fillRect(0, 0, this.W, this.H)
+    ctx.fillRect(0, 0, this.worldW, this.worldH)
 
-    ctx.save()
-    if (fxState.shake > 0.05) {
-      ctx.translate((Math.random() - 0.5) * fxState.shake, (Math.random() - 0.5) * fxState.shake)
+    const l = this.layout()
+
+    // --- starfield ---------------------------------------------------------
+    let starAlpha: number
+    switch (phase) {
+      case 'title': starAlpha = 0.45; break
+      case 'settings': starAlpha = 0.25; break
+      case 'result': starAlpha = 0.42; break
+      case 'paused': starAlpha = 0.2; break
+      case 'collapse': starAlpha = intensity.starAlpha() * Math.max(0.12, this.collapseDim()); break
+      default: starAlpha = intensity.starAlpha() * (upgrade.active() ? Math.max(upgrade.dim(), 0.4) : 1)
+    }
+    this.stars.draw(ctx, t, sim.station.x, sim.station.y, starAlpha)
+
+    // --- the field ---------------------------------------------------------
+    const inField = phase === 'run' || phase === 'firstrun' || phase === 'choice' || phase === 'paused' || phase === 'collapse'
+    if (inField) {
+      const fieldAlpha =
+        phase === 'paused' ? TUNING.choice.freezeDim :
+        phase === 'collapse' ? this.collapseDim() :
+        upgrade.active() ? upgrade.dim() : 1
+
+      const tear = hullTearOffset()
+      if (tear > 0.5) {
+        // render the field once, then blit two halves shifted — the picture
+        // tears along a scanline; the DOM scanlines above stay whole
+        const f = this.fieldCtx
+        f.setTransform(px, 0, 0, px, 0, 0)
+        f.clearRect(0, 0, this.worldW, this.worldH)
+        this.drawField(f, sim, pointer, fieldAlpha, t, dt)
+        const ys = Math.round(sim.station.y * px)
+        const devW = this.canvas.width
+        const devH = this.canvas.height
+        const off = Math.round(tear * px)
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+        ctx.drawImage(this.fieldCanvas, 0, 0, devW, ys, -off, 0, devW, ys)
+        ctx.drawImage(this.fieldCanvas, 0, ys, devW, devH - ys, off, ys, devW, devH - ys)
+        // the 1px white line — a signal dropout, not a bar
+        ctx.fillStyle = 'rgba(255,255,255,0.9)'
+        ctx.fillRect(0, ys, devW, Math.max(1, Math.round(TUNING.hullHit.tearLineWidth * this.dpr)))
+        ctx.setTransform(px, 0, 0, px, 0, 0)
+      } else {
+        this.drawField(ctx, sim, pointer, fieldAlpha, t, dt)
+      }
     }
 
-    this.stars.draw(ctx, t, pointer.x, pointer.y, this.wellEase)
+    // --- collapse sequence over the field ---------------------------------
+    if (phase === 'collapse') this.drawCollapse(ctx, sim, game.phaseT)
+    if (phase === 'result') this.drawBurnIn(ctx, sim, 0.12)
 
-    const showStation = game.phase === 'ready' || game.phase === 'play' || game.phase === 'paused'
-    if (showStation) this.drawStation(sim, t)
+    // --- surge + build play over live gameplay -----------------------------
+    if (upgrade.stage === 'surge') this.drawSurge(ctx, sim)
+    if (upgrade.buildTrack && upgrade.buildT >= 0 && upgrade.buildT < TUNING.choice.build + 0.2) {
+      this.drawBuildFlash(ctx, sim)
+    }
 
-    this.drawTrailsAndObjects(sim)
-    this.drawParticles()
-    if (wellVisible || this.wellEase > 0.02) this.drawWell(pointer)
-    this.drawFloats()
-    if (game.phase === 'dying') this.drawDeathSequence(sim)
-    this.drawHud(sim)
+    // --- floats + HUD ------------------------------------------------------
+    if (inField) {
+      this.drawFloats(ctx)
+      this.drawScore(ctx, l, phase === 'collapse' ? Math.max(0, 1 - game.phaseT / 1.2) : 1)
+    }
 
-    if (game.phase === 'ready') this.drawTitle(t)
-    else if (game.phase === 'paused') this.drawPaused(t)
-    else if (game.phase === 'dead') this.drawDead(t)
+    // --- shell screens -----------------------------------------------------
+    switch (phase) {
+      case 'title': drawTitle(ctx, l, t); break
+      case 'paused': drawPaused(ctx, l); break
+      case 'result': drawResult(ctx, l); break
+      case 'settings': drawSettings(ctx, l); break
+      case 'choice': drawChoice(ctx, sim.station, l); break
+      default: break
+    }
+    if (phase === 'firstrun') this.drawFirstRunHints(ctx, pointer, t)
 
-    ctx.restore()
+    // --- DOM tube dressing -------------------------------------------------
+    const scanA = inField ? intensity.scanAlpha() : 0.32
+    const vig = inField ? intensity.vignetteInner() : 0.58
+    if (Math.abs(scanA - this.lastScan) > 0.005 && this.crtEl) {
+      this.lastScan = scanA
+      this.crtEl.style.opacity = String(scanA)
+    }
+    if (Math.abs(vig - this.lastVig) > 0.005 && this.vigEl) {
+      this.lastVig = vig
+      this.vigEl.style.background =
+        `radial-gradient(110% 100% at 50% 50%, transparent ${Math.round(vig * 100)}%, rgba(0,0,0,0.5))`
+    }
   }
 
-  // --- station: 3 ring sections = 3 hull points, masts on live sections ---
-  private drawStation(sim: Sim, t: number): void {
-    const ctx = this.ctx
-    const sx = sim.stationX
-    const sy = sim.stationY
-    const hull = game.hull
+  // -------------------------------------------------------------------------
 
-    ctx.drawImage(this.glowTeal, sx - 70, sy - 70)
-
-    const flicker = fxState.hitFlash > 0 && Math.sin(t * 42) > 0
+  private drawField(ctx: CanvasRenderingContext2D, sim: Sim, pointer: PointerState, fieldAlpha: number, t: number, dt: number): void {
+    const st = sim.station
     ctx.save()
-    ctx.translate(sx, sy)
-    ctx.rotate(this.spinA * 0.4)
 
-    const gap = 0.35 // radians between ring sections
-    const seg = TAU / 3
-    ctx.lineWidth = 5
-    ctx.lineCap = 'round'
-    for (let s = 0; s < 3; s++) {
-      const alive = s < hull
-      ctx.strokeStyle = flicker ? PAL.bad : alive ? PAL.station : PAL.stationDark
-      ctx.globalAlpha = alive ? 1 : 0.16
-      const a0 = s * seg + gap / 2
-      const a1 = (s + 1) * seg - gap / 2
-      ctx.beginPath()
-      ctx.arc(0, 0, 36, a0, a1)
-      ctx.stroke()
-      if (alive) {
-        // mast at section midpoint
-        const mid = (a0 + a1) / 2
-        const cm = Math.cos(mid)
-        const sm = Math.sin(mid)
+    // shake + late-run wobble
+    let ox = 0
+    let oy = 0
+    if (fx.shake > 0.05 && !settings.reduceMotion) {
+      ox = (Math.random() - 0.5) * fx.shake
+      oy = (Math.random() - 0.5) * fx.shake
+    }
+    if (intensity.wobbleOn() && !settings.reduceMotion && game.phase !== 'paused') {
+      this.wobblePhase += dt
+      if (this.wobblePhase > TUNING.intensity.wobblePeriod) this.wobblePhase = 0
+      if (this.wobblePhase < 0.09) ox += TUNING.intensity.wobblePx
+    }
+    ctx.translate(ox, oy)
+
+    const bloom = intensity.bloomMul()
+    const flicker = hullFlickerAlpha()
+    const hideStation = game.phase === 'collapse' && game.phaseT > 0.9
+
+    // station
+    if (!hideStation) {
+      const sAlpha = fieldAlpha * flicker
+      this.stationDraw.drawStructure(ctx, st, this.dpr * this.scale, sAlpha)
+      this.stationDraw.drawCore(ctx, st, t, dt, fx.bankT, sAlpha, bloom)
+      // collapse over-brighten
+      if (game.phase === 'collapse' && game.phaseT < 0.9) {
+        const f = Math.min(1, game.phaseT / TUNING.collapse.blowout)
+        ctx.globalCompositeOperation = 'lighter'
+        ctx.globalAlpha = f * 0.45
+        this.stationDraw.drawStructure(ctx, st, this.dpr * this.scale, 1)
+        ctx.globalAlpha = 1
+        ctx.globalCompositeOperation = 'source-over'
+      }
+    }
+
+    // ships + tracers
+    const newestShip = st.ships.length - 1
+    for (let i = 0; i < st.ships.length; i++) {
+      const ship = st.ships[i]
+      let scl = 1
+      if (upgrade.buildTrack === 'ships' && i === newestShip && upgrade.buildT >= 0 && upgrade.buildT < TUNING.choice.build) {
+        const f = upgrade.buildT / TUNING.choice.build
+        scl = f < 0.7 ? 0.35 + (1.16 - 0.35) * (f / 0.7) : 1.16 - 0.16 * ((f - 0.7) / 0.3)
+      }
+      ctx.globalAlpha = fieldAlpha
+      drawDart(ctx, ship.x, ship.y, ship.angle, true, scl)
+      if (ship.tracerT > 0) {
+        ctx.globalAlpha = fieldAlpha * Math.max(0, ship.tracerT / TUNING.ships.tracerDuration)
+        ctx.strokeStyle = PAL.white
+        ctx.lineWidth = 1
         ctx.beginPath()
-        ctx.moveTo(cm * 40, sm * 40)
-        ctx.lineTo(cm * 48, sm * 48)
+        ctx.moveTo(ship.x, ship.y)
+        ctx.lineTo(ship.tx, ship.ty)
         ctx.stroke()
       }
     }
     ctx.globalAlpha = 1
 
-    // Core: teal disc, gold pulse on bank, dark center hole (icon motif)
-    const bank = fxState.bankFlash
-    if (bank > 0) {
-      ctx.drawImage(this.glowGold, -60, -60)
-      ctx.fillStyle = PAL.ore
-    } else {
-      ctx.fillStyle = flicker ? PAL.bad : PAL.station
+    // 13e — echoes, only inside the well's field
+    if (pointer.active && fieldAlpha > 0.5) {
+      const E = TUNING.echoes
+      for (let i = 0; i < sim.pool.count; i++) {
+        const o = sim.pool.objs[i]
+        const plain = this.sprites.plain.get(o.kind)
+        if (!plain) continue
+        for (let k = ECHO_BACK.length - 1; k >= 0; k--) {
+          if (!readHistory(o, ECHO_BACK[k], this.histBuf)) continue
+          const hx = this.histBuf[0]
+          const hy = this.histBuf[1]
+          const dxp = hx - pointer.x
+          const dyp = hy - pointer.y
+          const d = Math.hypot(dxp, dyp)
+          const mask = 1 - d / E.maskRadius
+          if (mask <= 0.04) continue
+          const a = E.alphas[k] * Math.min(1, mask * 1.4) * fieldAlpha
+          if (a < 0.03) continue
+          ctx.globalAlpha = a
+          this.blitSprite(ctx, plain, hx, hy, this.histBuf[2], o.r / plain.nominal)
+        }
+      }
+      ctx.globalAlpha = 1
     }
-    ctx.beginPath()
-    ctx.arc(0, 0, 17, 0, TAU)
-    ctx.fill()
-    ctx.fillStyle = PAL.stationHole
-    ctx.beginPath()
-    ctx.arc(0, 0, 8, 0, TAU)
-    ctx.fill()
-    ctx.restore()
 
-    // Hull pips
-    for (let i = 0; i < TUNING.station.hull; i++) {
-      this.ctx.globalAlpha = i < hull ? 1 : 0.18
-      this.ctx.fillStyle = PAL.station
-      this.ctx.beginPath()
-      this.ctx.arc(sx - 22 + i * 22, sy + 62, 5, 0, TAU)
-      this.ctx.fill()
-    }
-    this.ctx.globalAlpha = 1
-  }
-
-  private drawTrailsAndObjects(sim: Sim): void {
-    const ctx = this.ctx
-    const alpha = sim.alpha
-    const cap = 64 // TRAIL_CAP
-
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-
+    // objects
     for (let i = 0; i < sim.pool.count; i++) {
       const o = sim.pool.objs[i]
-      const rx = o.px + (o.x - o.px) * alpha
-      const ry = o.py + (o.y - o.py) * alpha
-
-      // Trail: three batched strokes, oldest->newest, tapering width/alpha
-      const len = o.trailLen
-      if (len > 2) {
-        const oldest = (o.trailHead - len + cap * 2) % cap
-        const colors = o.type === ORE ? TRAIL_ORE : TRAIL_ROCK
-        const baseW = o.type === ORE ? TUNING.trail.oreWidth : TUNING.trail.rockWidth
-        for (let b = 0; b < 3; b++) {
-          const batch = TRAIL_BATCHES[b]
-          const i0 = Math.floor(len * batch.frac0)
-          const i1 = b === 2 ? len : Math.floor(len * batch.frac1)
-          if (i1 - i0 < 1) continue
-          ctx.strokeStyle = colors[b]
-          ctx.lineWidth = Math.max(1, baseW * batch.width)
-          ctx.beginPath()
-          for (let k = i0; k <= i1 && k < len; k++) {
-            const idx = ((oldest + k) % cap) * 2
-            const px = o.trail[idx]
-            const py = o.trail[idx + 1]
-            if (k === i0) ctx.moveTo(px, py)
-            else ctx.lineTo(px, py)
-          }
-          if (b === 2) ctx.lineTo(rx, ry) // connect newest batch to the body
-          ctx.stroke()
-        }
+      const sprite = this.sprites.lit.get(o.kind)
+      if (!sprite) continue
+      const rx = o.px + (o.x - o.px) * sim.alpha
+      const ry = o.py + (o.y - o.py) * sim.alpha
+      ctx.globalAlpha = fieldAlpha
+      this.blitSprite(ctx, sprite, rx, ry, o.rot, o.r / sprite.nominal)
+      if (o.hitFlash > 0) {
+        ctx.globalCompositeOperation = 'lighter'
+        ctx.globalAlpha = fieldAlpha * (o.hitFlash / TUNING.ships.hitFlash) * 0.8
+        this.blitSprite(ctx, sprite, rx, ry, o.rot, o.r / sprite.nominal)
+        ctx.globalCompositeOperation = 'source-over'
       }
+    }
+    ctx.globalAlpha = 1
 
-      // Body
+    this.drawFieldFx(ctx, sim, fieldAlpha)
+
+    // first-run guide — the trajectory your pull is giving the ore
+    if (game.phase === 'firstrun' && firstRun.guide.length >= 4) {
+      ctx.strokeStyle = rgba(PAL.ore, 0.38)
+      ctx.lineWidth = 1
+      ctx.setLineDash([3, 6])
+      ctx.beginPath()
+      ctx.moveTo(firstRun.guide[0], firstRun.guide[1])
+      for (let i = 2; i < firstRun.guide.length; i += 2) ctx.lineTo(firstRun.guide[i], firstRun.guide[i + 1])
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    // the well — on, or gone
+    if (pointer.active || this.well.liveCount() > 0) {
+      this.well.draw(ctx, pointer.x, pointer.y, fieldAlpha)
+    }
+
+    ctx.restore()
+  }
+
+  private blitSprite(ctx: CanvasRenderingContext2D, s: { canvas: HTMLCanvasElement; half: number; nominal: number }, x: number, y: number, rot: number, scale: number): void {
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(rot)
+    if (scale !== 1) ctx.scale(scale, scale)
+    ctx.drawImage(s.canvas, -s.half, -s.half, s.half * 2, s.half * 2)
+    ctx.restore()
+  }
+
+  private drawFieldFx(ctx: CanvasRenderingContext2D, sim: Sim, fieldAlpha: number): void {
+    const st = sim.station
+
+    // smash shock rings — the only pure white in ordinary play
+    for (const s of fx.shocks) {
+      this.shockRing(ctx, s.x, s.y, s.t, TUNING.smash.ringA, fieldAlpha)
+      this.shockRing(ctx, s.x, s.y, s.t, TUNING.smash.ringB, fieldAlpha)
+    }
+    // rubble crumble — quiet dim ring
+    for (const c of fx.crumbles) {
+      const f = c.t / 0.3
+      ctx.globalAlpha = fieldAlpha * (1 - f) * 0.5
+      ctx.strokeStyle = PAL.rock
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.arc(c.x, c.y, 8 + 24 * f, 0, TAU)
+      ctx.stroke()
+    }
+    // ore spill chips — the only time warm light leaves the station
+    for (const c of fx.chips) {
+      const f = c.t / c.life
       ctx.save()
-      ctx.translate(rx, ry)
-      ctx.rotate(o.rot)
-      if (o.type === ORE) {
-        // Gold hexagon — same motif as the app icon core
-        ctx.fillStyle = PAL.ore
-        ctx.beginPath()
-        for (let k = 0; k < 6; k++) {
-          const a = (k / 6) * TAU
-          const vr = o.r * (0.9 + ((k * 7) % 3) * 0.07)
-          if (k === 0) ctx.moveTo(Math.cos(a) * vr, Math.sin(a) * vr)
-          else ctx.lineTo(Math.cos(a) * vr, Math.sin(a) * vr)
-        }
-        ctx.closePath()
-        ctx.fill()
-        ctx.fillStyle = 'rgba(255,255,255,0.55)'
-        ctx.beginPath()
-        ctx.arc(-o.r * 0.25, -o.r * 0.25, o.r * 0.22, 0, TAU)
-        ctx.fill()
-      } else {
-        const sd = (o.seed | 0) % 5
-        ctx.fillStyle = PAL.rock
-        ctx.beginPath()
-        for (let k = 0; k < 7; k++) {
-          const a = (k / 7) * TAU
-          const vr = o.r * (0.8 + ((k * 13 + sd) % 4) * 0.09)
-          if (k === 0) ctx.moveTo(Math.cos(a) * vr, Math.sin(a) * vr)
-          else ctx.lineTo(Math.cos(a) * vr, Math.sin(a) * vr)
-        }
-        ctx.closePath()
-        ctx.fill()
-        ctx.fillStyle = PAL.rockDark
-        ctx.beginPath()
-        ctx.arc(o.r * 0.2, o.r * 0.1, o.r * 0.25, 0, TAU)
-        ctx.fill()
-      }
+      ctx.translate(st.x + c.x, st.y + c.y)
+      ctx.rotate(c.rot)
+      ctx.globalAlpha = fieldAlpha * (f > 0.6 ? 1 - (f - 0.6) / 0.4 : 1)
+      ctx.strokeStyle = PAL.ore
+      ctx.lineWidth = 1.6
+      ctx.shadowColor = 'rgba(255,226,63,0.85)'
+      ctx.shadowBlur = 6
+      ctx.beginPath()
+      ctx.moveTo(0, -5)
+      ctx.lineTo(5, -1)
+      ctx.lineTo(3, 5)
+      ctx.lineTo(-5, 2)
+      ctx.closePath()
+      ctx.stroke()
       ctx.restore()
     }
+    // 13d — near-miss flare with the gap in pixels
+    for (const fl of fx.flares) {
+      const f = fl.t / TUNING.nearMiss.flareDuration
+      const a = f < 0.14 ? f / 0.14 : 1 - (f - 0.14) / 0.86
+      ctx.globalAlpha = fieldAlpha * a
+      ctx.strokeStyle = PAL.rockLit
+      ctx.lineWidth = 2.5
+      ctx.shadowColor = 'rgba(205,234,245,0.8)'
+      ctx.shadowBlur = 8
+      const r = 48 + 6 * f
+      ctx.beginPath()
+      ctx.arc(st.x, st.y, r, fl.angle - 0.48, fl.angle + 0.48)
+      ctx.stroke()
+      ctx.shadowBlur = 0
+      ctx.font = `11px ${FONT_LABEL}`
+      ctx.textAlign = 'center'
+      ctx.fillStyle = PAL.rockLit
+      ctx.fillText(`${fl.gap}PX`, st.x + Math.cos(fl.angle) * 76, st.y + Math.sin(fl.angle) * 76 + 4)
+    }
+    ctx.globalAlpha = 1
   }
 
-  // --- the signature: violet well with rotating dashed rings + infall ---
-  private drawWell(pointer: PointerState): void {
-    const ctx = this.ctx
-    const ease = this.wellEase
-    const breathe = 1 + 0.04 * Math.sin(this.spinA * 3)
-    const scale = (0.6 + 0.4 * ease) * breathe
-
-    ctx.save()
-    ctx.translate(pointer.x, pointer.y)
-    ctx.globalAlpha = ease
-    ctx.drawImage(this.glowViolet, -85, -85)
-    ctx.globalAlpha = 1
-
-    ctx.scale(scale, scale)
-    for (let i = 0; i < 3; i++) {
-      ctx.rotate(this.spinA * (1.5 + i * 0.7) * (i % 2 ? -1 : 1))
-      ctx.strokeStyle = PAL.well
-      ctx.globalAlpha = (0.5 - i * 0.12) * ease
-      ctx.setLineDash(DASH)
-      ctx.lineWidth = 3
-      ctx.beginPath()
-      ctx.arc(0, 0, 26 + i * 20, 0, TAU)
-      ctx.stroke()
-    }
-    ctx.setLineDash(NO_DASH)
-
-    // Infall sparks
-    ctx.fillStyle = PAL.well
-    for (let i = 0; i < wellParticles.count; i++) {
-      const p = wellParticles.parts[i]
-      const fade = Math.min(1, (90 - p.radius) / 60)
-      ctx.globalAlpha = fade * 0.9 * ease
-      ctx.beginPath()
-      ctx.arc(Math.cos(p.angle) * p.radius, Math.sin(p.angle) * p.radius, 2, 0, TAU)
-      ctx.fill()
-    }
-
-    ctx.globalAlpha = ease
-    ctx.fillStyle = PAL.well
+  private shockRing(ctx: CanvasRenderingContext2D, x: number, y: number, t: number, cfg: { r0: number; r1: number; grow: number; w: number }, fieldAlpha: number): void {
+    const f = Math.min(1, t / cfg.grow)
+    const fade = t > cfg.grow * 0.7 ? Math.max(0, 1 - (t - cfg.grow * 0.7) / (cfg.grow * 0.6)) : 1
+    if (fade <= 0) return
+    ctx.globalAlpha = fieldAlpha * fade
+    ctx.strokeStyle = PAL.white
+    ctx.lineWidth = cfg.w
     ctx.beginPath()
-    ctx.arc(0, 0, 5, 0, TAU)
-    ctx.fill()
+    ctx.arc(x, y, cfg.r0 + (cfg.r1 - cfg.r0) * f, 0, TAU)
+    ctx.stroke()
+    ctx.globalAlpha = 1
+  }
+
+  private drawFloats(ctx: CanvasRenderingContext2D): void {
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'alphabetic'
+    for (const f of fx.floats) {
+      const p = f.t / TUNING.fx.floatLife
+      ctx.globalAlpha = p > 0.55 ? 1 - (p - 0.55) / 0.45 : 1
+      ctx.fillStyle = f.color
+      ctx.font = `34px ${FONT_NUM}`
+      if (f.glow) {
+        ctx.shadowColor = 'rgba(255,226,63,0.7)'
+        ctx.shadowBlur = 8
+      }
+      ctx.fillText(f.text, f.x, f.y - TUNING.fx.floatRise * p)
+      ctx.shadowBlur = 0
+    }
+    ctx.globalAlpha = 1
+  }
+
+  private drawScore(ctx: CanvasRenderingContext2D, l: Layout, alpha: number): void {
+    if (alpha <= 0.01) return
+    ctx.globalAlpha = alpha
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    ctx.font = `62px ${FONT_NUM}`
+    ctx.fillStyle = PAL.ink
+    // only the score blooms among type
+    ctx.shadowColor = 'rgba(159,214,232,0.8)'
+    ctx.shadowBlur = 6
+    ctx.fillText(String(game.score), 22, Math.max(62, l.safeTop + 52))
+    ctx.shadowBlur = 0
+    ctx.globalAlpha = 1
+  }
+
+  // --- upgrade surge + build ----------------------------------------------
+
+  private drawSurge(ctx: CanvasRenderingContext2D, sim: Sim): void {
+    const C = TUNING.choice
+    const f = Math.min(1, upgrade.t / C.surge)
+    const e = 1 - (1 - f) * (1 - f)
+    const r = 104 + (15 - 104) * e
+    const a = f < 0.1 ? f / 0.1 : f > 0.92 ? (1 - f) / 0.08 : 1
+    ctx.save()
+    ctx.globalAlpha = Math.max(0, a)
+    ctx.strokeStyle = PAL.ore
+    ctx.lineWidth = 2.4
+    ctx.shadowColor = 'rgba(255,226,63,0.85)'
+    ctx.shadowBlur = 9
+    ctx.beginPath()
+    ctx.arc(sim.station.x, sim.station.y, r, 0, TAU)
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  /** New structure arrives warm and cools into the hull. */
+  private drawBuildFlash(ctx: CanvasRenderingContext2D, sim: Sim): void {
+    const st = sim.station
+    const C = TUNING.choice
+    const bt = upgrade.buildT
+    if (bt < 0) return
+    const f = Math.min(1, bt / (C.build + 0.2))
+    const a = 1 - f
+    if (a <= 0.02) return
+    ctx.save()
+    ctx.translate(st.x, st.y)
+    ctx.globalAlpha = a
+    ctx.strokeStyle = PAL.ore
+    ctx.shadowColor = 'rgba(255,226,63,0.85)'
+    ctx.shadowBlur = 8
+    ctx.lineCap = 'round'
+    const bf = Math.min(1, bt / C.build)
+    const pop = bf < 0.7 ? 0.35 + (1.16 - 0.35) * (bf / 0.7) : 1.16 - 0.16 * ((bf - 0.7) / 0.3)
+    if (upgrade.buildTrack === 'hull') {
+      const n = st.sections
+      const gapHalf = (TUNING.station.boundaryGapDeg / 2) * (Math.PI / 180)
+      const a0 = st.boundaryAngle(n - 1) + gapHalf
+      const a1 = st.boundaryAngle(n) - gapHalf
+      ctx.lineWidth = 2.9
+      ctx.beginPath()
+      ctx.arc(0, 0, TUNING.station.radius, a0, a1)
+      ctx.stroke()
+      const fa = st.boundaryAngle(n - 1)
+      ctx.lineWidth = 2.88 * Math.max(0.4, pop)
+      ctx.beginPath()
+      ctx.moveTo(Math.cos(fa) * 44, Math.sin(fa) * 44)
+      ctx.lineTo(Math.cos(fa) * (44 + 5 * pop), Math.sin(fa) * (44 + 5 * pop))
+      ctx.stroke()
+    } else if (upgrade.buildTrack === 'capacity') {
+      const rails = [33, 26.5, 21.5]
+      const r = rails[Math.min(2, Math.max(0, st.capacity - 1))]
+      ctx.lineWidth = 1.4
+      ctx.beginPath()
+      ctx.arc(0, 0, r * Math.max(0.5, Math.min(1, pop)), 0, TAU)
+      ctx.stroke()
+    }
+    // the ships build pop is applied to the dart itself in drawField
+    ctx.restore()
+  }
+
+  // --- collapse: a CRT losing power ---------------------------------------
+
+  private collapseDim(): number {
+    const t = game.phaseT
+    if (t >= 1.6) return 0 // only the beam line remains
+    const f = Math.min(1, t / 1.0)
+    return 1 + (TUNING.collapse.fieldDim - 1) * f
+  }
+
+  private drawCollapse(ctx: CanvasRenderingContext2D, sim: Sim, t: number): void {
+    const st = sim.station
+    ctx.save()
+
+    // blowout ring
+    if (t >= 0.575 && t < 1.2) {
+      const f = (t - 0.575) / 0.575
+      ctx.globalAlpha = Math.max(0, 1 - f)
+      ctx.strokeStyle = PAL.ink
+      ctx.lineWidth = 2
+      ctx.shadowColor = 'rgba(234,252,255,0.9)'
+      ctx.shadowBlur = 12
+      ctx.beginPath()
+      ctx.arc(st.x, st.y, 44 * (0.3 + 1.9 * f), 0, TAU)
+      ctx.stroke()
+      ctx.shadowBlur = 0
+    }
+
+    // the ring separates into the arcs you spent the run defending
+    if (t >= 1.0 && t < 2.45) {
+      const f = (t - 1.0) / 1.45
+      const n = st.sections
+      const gapHalf = (TUNING.station.boundaryGapDeg / 2) * (Math.PI / 180)
+      ctx.strokeStyle = rgba(PAL.station, 0.7)
+      ctx.lineWidth = 2.4
+      ctx.globalAlpha = f > 0.7 ? Math.max(0, (1 - f) / 0.3) : 1
+      for (let i = 0; i < n; i++) {
+        const mid = st.boundaryAngle(i) + Math.PI / n
+        const dist = (60 + (i % 3) * 34) * f
+        const rot = ((i % 2 === 0 ? 1 : -1) * (0.9 + (i % 3) * 0.25)) * f
+        ctx.save()
+        ctx.translate(st.x + Math.cos(mid) * dist, st.y + Math.sin(mid) * dist)
+        ctx.rotate(rot)
+        ctx.translate(-st.x, -st.y)
+        ctx.beginPath()
+        ctx.arc(st.x, st.y, 44, st.boundaryAngle(i) + gapHalf, st.boundaryAngle(i + 1) - gapHalf)
+        ctx.stroke()
+        ctx.restore()
+      }
+      ctx.globalAlpha = 1
+    }
+
+    // beam collapse: the whole picture becomes a line, then a dot
+    if (t >= 1.45 && t < 2.2) {
+      let sx: number
+      let alpha = 1
+      if (t < 1.6) sx = 0.15 + ((t - 1.45) / 0.15) * 0.85
+      else if (t < 1.95) sx = 1
+      else {
+        const f = (t - 1.95) / 0.25
+        sx = 1 - f * 0.95
+        alpha = 1 - f * 0.6
+      }
+      ctx.globalAlpha = alpha
+      ctx.fillStyle = PAL.ink
+      ctx.shadowColor = 'rgba(234,252,255,0.95)'
+      ctx.shadowBlur = 10
+      const w = this.worldW * sx
+      ctx.fillRect(st.x - w / 2, st.y - 1, w, 2)
+      ctx.shadowBlur = 0
+    }
+    if (t >= 2.2 && t < 2.62) {
+      const f = (t - 2.2) / 0.42
+      ctx.globalAlpha = Math.max(0, 1 - f)
+      ctx.fillStyle = PAL.ink
+      ctx.shadowColor = 'rgba(234,252,255,0.95)'
+      ctx.shadowBlur = 8
+      ctx.beginPath()
+      ctx.arc(st.x, st.y, 3 * (1 - f * 0.65), 0, TAU)
+      ctx.fill()
+      ctx.shadowBlur = 0
+    }
+
+    // burn-in where the station used to be
+    if (t >= 2.35) {
+      const a = Math.min(0.4, ((t - 2.35) / 0.4) * 0.4)
+      this.drawBurnIn(ctx, sim, a)
+    }
     ctx.globalAlpha = 1
     ctx.restore()
   }
 
-  private drawParticles(): void {
-    const ctx = this.ctx
-    for (let i = 0; i < particles.count; i++) {
-      const p = particles.parts[i]
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 2))
-      ctx.fillStyle = p.color
+  private drawBurnIn(ctx: CanvasRenderingContext2D, sim: Sim, alpha: number): void {
+    const st = sim.station
+    ctx.save()
+    ctx.translate(st.x, st.y)
+    ctx.globalAlpha = alpha
+    ctx.strokeStyle = PAL.station
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(0, 0, 44, 0, TAU)
+    ctx.stroke()
+    ctx.globalAlpha = alpha * 0.8
+    ctx.strokeStyle = PAL.core
+    ctx.lineWidth = 1.4
+    ctx.beginPath()
+    ctx.arc(0, 0, 18, 0, TAU)
+    ctx.stroke()
+    // cold residue — what you banked, now dead, in a broken dashed remnant
+    if (game.oreTotal > 0) {
+      ctx.globalAlpha = alpha * 0.9
+      ctx.strokeStyle = PAL.oreDead
+      ctx.lineWidth = 1
+      ctx.setLineDash([2, 4])
       ctx.beginPath()
-      ctx.arc(p.x, p.y, p.r, 0, TAU)
+      ctx.arc(0, 0, 16, 0, TAU)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.fillStyle = rgba(PAL.oreDead, 0.35)
+      ctx.beginPath()
+      ctx.arc(0, 0, 14, Math.PI * 0.15, Math.PI * 0.85)
+      ctx.closePath()
       ctx.fill()
     }
-    ctx.globalAlpha = 1
-  }
-
-  private drawFloats(): void {
-    const ctx = this.ctx
-    ctx.textAlign = 'center'
-    ctx.font = `22px ${FONT_STACK}`
-    for (let i = 0; i < floats.count; i++) {
-      const f = floats.floats[i]
-      ctx.globalAlpha = Math.min(1, f.life * 2)
-      ctx.fillStyle = f.color
-      ctx.fillText(f.text, f.x, f.y)
-    }
-    ctx.globalAlpha = 1
-  }
-
-  // --- death sequence: shockwaves + white flash over the shattered station ---
-  private drawDeathSequence(sim: Sim): void {
-    const ctx = this.ctx
-    const f = game.dyingT / TUNING.dying.duration
-    const sx = sim.stationX
-    const sy = sim.stationY
-    const maxR = Math.min(this.W, this.H) * 0.62
-
-    for (let ring = 0; ring < 2; ring++) {
-      const rf = Math.max(0, f - ring * 0.12) / (1 - ring * 0.12)
-      if (rf <= 0) continue
-      const eased = 1 - (1 - rf) * (1 - rf)
-      ctx.globalAlpha = (1 - eased) * 0.7
-      ctx.strokeStyle = ring === 0 ? PAL.station : PAL.ink
-      ctx.lineWidth = 3 - ring
-      ctx.beginPath()
-      ctx.arc(sx, sy, 20 + eased * maxR, 0, TAU)
-      ctx.stroke()
-    }
-    ctx.globalAlpha = 1
-
-    const flash = Math.max(0, 0.55 * (1 - game.dyingT / 0.35))
-    if (flash > 0.01) {
-      ctx.globalAlpha = flash
-      ctx.fillStyle = PAL.ink
-      ctx.fillRect(0, 0, this.W, this.H)
-      ctx.globalAlpha = 1
-    }
-  }
-
-  private drawHud(sim: Sim): void {
-    const ctx = this.ctx
-    if (game.phase === 'ready') return
-    if (game.score !== this.lastScore) {
-      this.lastScore = game.score
-      this.scoreStr = String(game.score)
-    }
-    ctx.textAlign = 'center'
-    ctx.fillStyle = PAL.ink
-    ctx.font = `52px ${FONT_STACK}`
-    ctx.fillText(this.scoreStr, sim.stationX, this.safeTop + 58)
-  }
-
-  // --- overlays ---
-  private panel(): void {
-    this.ctx.fillStyle = PAL.panel
-    this.ctx.fillRect(0, 0, this.W, this.H)
-  }
-
-  private drawTitle(t: number): void {
-    const ctx = this.ctx
-    this.panel()
-    const cx = this.W / 2
-    const cy = this.H * 0.3
-
-    // Well motif behind the wordmark
-    ctx.save()
-    ctx.translate(cx, cy - 10)
-    for (let i = 0; i < 3; i++) {
-      ctx.rotate(t * (0.35 + i * 0.2) * (i % 2 ? -1 : 1))
-      ctx.strokeStyle = PAL.well
-      ctx.globalAlpha = 0.24 - i * 0.06
-      ctx.setLineDash(DASH)
-      ctx.lineWidth = 3
-      ctx.beginPath()
-      ctx.arc(0, 0, 78 + i * 30, 0, TAU)
-      ctx.stroke()
-    }
-    ctx.setLineDash(NO_DASH)
     ctx.restore()
-    ctx.globalAlpha = 1
-
-    ctx.textAlign = 'center'
-    ctx.fillStyle = PAL.ink
-    ctx.font = `120px ${FONT_STACK}`
-    ctx.fillText('PULL', cx, cy + 34)
-
-    ctx.font = `24px ${FONT_STACK}`
-    ctx.fillStyle = PAL.ink
-    ctx.globalAlpha = 0.85
-    const lines = ['your finger is gravity.', 'bend rocks away from the station,', 'curl gold ore into it.', 'smash rocks together for bonus.']
-    for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], cx, cy + 108 + i * 30)
-    }
-    ctx.globalAlpha = 1
-
-    ctx.fillStyle = PAL.well
-    ctx.font = `30px ${FONT_STACK}`
-    ctx.fillText('TAP TO PLAY', cx, cy + 250 + Math.sin(t * 3.3) * 3)
-
-    if (game.best > 0) {
-      if (game.best !== this.lastBest) {
-        this.lastBest = game.best
-        this.bestStr = 'BEST ' + game.best
-      }
-      ctx.fillStyle = PAL.ore
-      ctx.font = `22px ${FONT_STACK}`
-      ctx.fillText(this.bestStr, cx, cy + 296)
-    }
   }
 
-  private drawPaused(t: number): void {
-    const ctx = this.ctx
-    this.panel()
-    const cx = this.W / 2
-    ctx.textAlign = 'center'
-    ctx.fillStyle = PAL.ink
-    ctx.font = `64px ${FONT_STACK}`
-    ctx.fillText('PAUSED', cx, this.H * 0.42)
-    ctx.fillStyle = PAL.well
-    ctx.font = `26px ${FONT_STACK}`
-    ctx.fillText('TAP TO RESUME', cx, this.H * 0.42 + 54 + Math.sin(t * 3.3) * 3)
-  }
+  // --- first run hints ------------------------------------------------------
 
-  private drawDead(t: number): void {
-    const ctx = this.ctx
-    this.panel()
-    const cx = this.W / 2
-    const cy = this.H * 0.32
-    ctx.textAlign = 'center'
-
-    ctx.fillStyle = PAL.bad
-    ctx.font = `58px ${FONT_STACK}`
-    ctx.fillText('STATION DOWN', cx, cy)
-
-    ctx.fillStyle = PAL.ink
-    ctx.font = `84px ${FONT_STACK}`
-    ctx.fillText(this.scoreStr, cx, cy + 92)
-
-    if (game.newBest) {
-      ctx.fillStyle = PAL.ore
-      ctx.font = `28px ${FONT_STACK}`
-      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 6)
-      ctx.fillText('NEW BEST!', cx, cy + 134)
-      ctx.globalAlpha = 1
-    } else {
-      if (game.best !== this.lastBest) {
-        this.lastBest = game.best
-        this.bestStr = 'BEST ' + game.best
-      }
-      ctx.fillStyle = PAL.ink
-      ctx.globalAlpha = 0.7
-      ctx.font = `24px ${FONT_STACK}`
-      ctx.fillText(this.bestStr, cx, cy + 134)
-      ctx.globalAlpha = 1
-    }
-
-    if (game.deadT >= TUNING.dying.restartLockout) {
-      ctx.fillStyle = PAL.well
-      ctx.font = `30px ${FONT_STACK}`
-      ctx.fillText('TAP TO RETRY', cx, cy + 210 + Math.sin(t * 3.3) * 3)
-    }
+  private drawFirstRunHints(ctx: CanvasRenderingContext2D, pointer: PointerState, t: number): void {
+    if (pointer.active || firstRun.untouchedT < TUNING.firstRun.hintAfter) return
+    const x = this.worldW * TUNING.firstRun.holdX
+    const y = this.worldH * TUNING.firstRun.holdY
+    const pulse = 0.45 + 0.25 * Math.sin(t * 3)
+    ctx.save()
+    ctx.globalAlpha = pulse
+    ctx.strokeStyle = PAL.ink
+    ctx.lineWidth = 1
+    ctx.setLineDash([2, 4])
+    ctx.beginPath()
+    ctx.arc(x, y, 18, 0, TAU)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.restore()
   }
 }

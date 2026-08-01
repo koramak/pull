@@ -1,65 +1,66 @@
-// Deterministic parallax starfield. Regenerated on resize from a fixed seed
-// so layout is stable per viewport. Stars near the well are displaced toward
-// the finger — the cheap read of "space itself bends here".
+// 10a — stars only, rotating about the station: three tiled depth layers
+// turning at 150/240/400s, so the station is the fixed point of the world
+// and the universe orbits it. Depth is differential rate + blur + luminance,
+// no geometry. Each layer is a square offscreen that covers the screen
+// diagonal, so it can turn forever without an edge arriving.
 
+import { TUNING } from '../config'
 import { SeededRNG } from '../rng'
-import { PAL } from './palette'
-
-interface Star {
-  x: number
-  y: number
-  size: number
-  depth: number // 0.35..1, deeper stars warp more and twinkle less
-  phase: number
-  alpha: number
-}
-
-const COUNT = 90
-
-// Quantized alpha LUT so twinkling never allocates strings in the frame loop
-const ALPHA_STEPS = 24
-const COLOR_LUT: string[] = []
-for (let i = 0; i < ALPHA_STEPS; i++) {
-  COLOR_LUT.push(`rgba(${PAL.star},${(i / (ALPHA_STEPS - 1) * 0.5).toFixed(3)})`)
-}
+import { PAL, rgba } from './palette'
 
 export class Starfield {
-  private stars: Star[] = []
+  private layers: HTMLCanvasElement[] = []
+  private side = 0        // world units
+  private px = 0          // device pixels per world unit
 
-  regenerate(w: number, h: number): void {
+  regenerate(worldW: number, worldH: number, px: number): void {
+    const side = Math.ceil(Math.hypot(worldW, worldH)) + 8
+    if (side === this.side && Math.abs(px - this.px) < 0.01) return
+    this.side = side
+    this.px = px
+    this.layers.length = 0
+    const S = TUNING.starfield
     const rng = new SeededRNG(0xC0FFEE)
-    this.stars.length = 0
-    for (let i = 0; i < COUNT; i++) {
-      this.stars.push({
-        x: rng.next() * w,
-        y: rng.next() * h,
-        size: rng.next() < 0.85 ? 1.5 : 2.5,
-        depth: rng.range(0.35, 1),
-        phase: rng.next() * Math.PI * 2,
-        alpha: rng.range(0.14, 0.4)
-      })
+    for (let k = 0; k < S.periods.length; k++) {
+      const c = document.createElement('canvas')
+      const dev = Math.ceil(side * px)
+      c.width = dev
+      c.height = dev
+      const g = c.getContext('2d')!
+      g.setTransform(px, 0, 0, px, 0, 0)
+      if (S.blurs[k] > 0) {
+        // atmospheric perspective: anything behind the plane gets blur and
+        // never gets bloom
+        try { g.filter = `blur(${S.blurs[k]}px)` } catch { /* older engines */ }
+      }
+      for (let i = 0; i < S.counts[k]; i++) {
+        const x = rng.next() * side
+        const y = rng.next() * side
+        const size = rng.range(S.sizeMin, S.sizeMax)
+        g.fillStyle = rgba(PAL.star, 0.7 + rng.next() * 0.3)
+        g.fillRect(x, y, size, size)
+      }
+      g.filter = 'none'
+      this.layers.push(c)
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D, t: number, wellX: number, wellY: number, wellEase: number): void {
-    const warp = wellEase > 0.001
-    for (let i = 0; i < this.stars.length; i++) {
-      const s = this.stars[i]
-      let x = s.x
-      let y = s.y
-      if (warp) {
-        const dx = wellX - x
-        const dy = wellY - y
-        const d = Math.hypot(dx, dy) + 40
-        const pull = Math.min(16, 2600 / d) * s.depth * wellEase
-        x += (dx / d) * pull
-        y += (dy / d) * pull
-      }
-      const tw = 0.75 + 0.25 * Math.sin(t * (0.6 + s.depth) + s.phase)
-      let idx = Math.round(s.alpha * tw * 2 * (ALPHA_STEPS - 1))
-      if (idx >= ALPHA_STEPS) idx = ALPHA_STEPS - 1
-      ctx.fillStyle = COLOR_LUT[idx]
-      ctx.fillRect(x, y, s.size, s.size)
+  /**
+   * Draw centred on (cx, cy) — the station anchor. `globalAlpha` is the
+   * intensity-driven starfield level (0.60 at minute 0 → 0.16 at 4.5).
+   */
+  draw(ctx: CanvasRenderingContext2D, t: number, cx: number, cy: number, globalAlpha: number): void {
+    const S = TUNING.starfield
+    const half = this.side / 2
+    for (let k = 0; k < this.layers.length; k++) {
+      const angle = (t / S.periods[k]) * Math.PI * 2
+      ctx.save()
+      ctx.translate(cx, cy)
+      ctx.rotate(angle)
+      ctx.globalAlpha = S.alphas[k] * (globalAlpha / S.alphas[0])
+      ctx.drawImage(this.layers[k], -half, -half, this.side, this.side)
+      ctx.restore()
     }
+    ctx.globalAlpha = 1
   }
 }
