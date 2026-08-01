@@ -100,7 +100,7 @@ export class WellFx {
 
     // rings — stroke thickens 1 → 2.4 as the circle closes
     ctx.strokeStyle = PAL.rock
-    ctx.shadowColor = 'rgba(159,214,232,0.6)'
+    ctx.shadowColor = 'rgba(174,185,196,0.6)'
     for (let i = 0; i < this.rings.length; i++) {
       const f = easeIn(this.rings[i].t / W.ringDuration)
       const r = W.ringR0 + (W.ringR1 - W.ringR0) * f

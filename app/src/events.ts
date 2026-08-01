@@ -5,19 +5,25 @@
 export interface EventMap {
   runStart: void
   spawn: { kind: string; x: number; y: number }
-  smash: { x: number; y: number; bothRocks: boolean; nearStation: boolean }
+  smash: { x: number; y: number; bothRocks: boolean; nearStation: boolean; value: number; chain: number }
   /** Rubble coming apart on a graze — quieter than a smash. */
   crumble: { x: number; y: number }
   bank: { x: number; y: number; score: number; doubled: boolean }
   reservoirFull: void
   hullHit: { sectionsBefore: number; alive: number; x: number; y: number; angle: number }
   oreSpill: { amount: number; x: number; y: number }
-  deflect: { x: number; y: number }
+  deflect: { x: number; y: number; value: number }
   nearMiss: { x: number; y: number; gap: number; angle: number }
   shipShot: { x0: number; y0: number; x1: number; y1: number; broke: boolean }
   choiceOpen: void
   choiceLock: { track: 'capacity' | 'hull' | 'ships' }
   surge: void
+  /** N4 — the post-upgrade shockwave clearing the field. */
+  clearPulse: void
+  /** M8 — an ore vein was announced at screen side 0-3 (top/right/bottom/left). */
+  vein: { side: number }
+  /** M6 — a dead hull section was relit (the HULL plate repaired it). */
+  hullRepair: { section: number }
   collapse: { score: number; best: number; newBest: boolean }
   pause: void
   resume: void

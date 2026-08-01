@@ -23,12 +23,17 @@ class Intensity {
     for (let i = 0; i < sim.pool.count; i++) {
       if (isRock(sim.pool.objs[i].kind)) rocks++
     }
+    // M5 — hull damage is pressure too: the tube knows how hurt you are
+    const st = sim.station
+    const hullDanger = st.sections > 1 ? 1 - (st.aliveCount() - 1) / (st.sections - 1) : 1
     const pressure =
       I.pressureRockWeight * Math.min(1, rocks / I.pressureRocks) +
-      I.pressureFillWeight * sim.station.fillFrac()
+      I.pressureFillWeight * st.fillFrac() +
+      I.pressureHullWeight * Math.max(0, Math.min(1, hullDanger))
     const k = Math.min(1, dt * I.smoothing)
     this.smoothed += (pressure - this.smoothed) * k
-    const floor = Math.min(1, runTime / I.clockFloorAt)
+    let floor = Math.min(1, runTime / I.clockFloorAt)
+    if (sim.hullCritical) floor = Math.max(floor, I.criticalFloor)
     this.value = Math.max(floor, this.smoothed)
   }
 

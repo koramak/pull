@@ -7,10 +7,12 @@
 //   SHIPS (darts)     — one craft per purchase on the r61 patrol, docked to
 //                       a section, dies with it.
 //
-// A hit takes one section, the structure standing on it, and a quarter of
-// the ore. Nothing repairs.
+// A hit takes one section, the structure standing on it, and a slice of the
+// ore (capacity buys the slice down — M4). While any section is dead, the
+// HULL plate repairs it instead of adding a new one (M6): repair or greed.
 
 import { TUNING } from '../config'
+import { emit } from '../events'
 
 export type Track = 'capacity' | 'hull' | 'ships'
 
@@ -75,9 +77,15 @@ export class Station {
     return Math.min(1, this.reservoir / this.reservoirCap)
   }
 
+  anyDead(): boolean {
+    for (let i = 0; i < this.sections; i++) if (this.dead[i]) return true
+    return false
+  }
+
   canUpgrade(track: Track): boolean {
     if (track === 'capacity') return this.capacity < TUNING.choice.maxCapacity
-    if (track === 'hull') return this.sections < TUNING.station.maxSections
+    // M6 — a damaged station can always buy the repair
+    if (track === 'hull') return this.sections < TUNING.station.maxSections || this.anyDead()
     return this.ships.length < TUNING.choice.maxShips
   }
 
@@ -91,8 +99,16 @@ export class Station {
       this.capacity++
       this.reservoirCap = Math.round(TUNING.reservoir.baseCapacity * Math.pow(TUNING.reservoir.capacityGrowth, this.capacity))
     } else if (track === 'hull') {
-      this.sections++
-      this.dead.push(false) // the ring re-divides; wounds stay wounds
+      // M6 — repair-or-greed: while any section is dead, HULL relights it
+      // instead of adding a new one. It still costs the whole reservoir.
+      const wounded = this.firstDead()
+      if (wounded >= 0) {
+        this.dead[wounded] = false
+        emit('hullRepair', { section: wounded })
+      } else {
+        this.sections++
+        this.dead.push(false) // the ring re-divides
+      }
     } else {
       // dock clockwise from the last ship, on an alive section
       let sec = (this.lastDock + 1) % this.sections
@@ -106,6 +122,12 @@ export class Station {
     }
     this.reservoir = 0
     this.structureRev++
+  }
+
+  /** Index of the first dead section, or -1. */
+  firstDead(): number {
+    for (let i = 0; i < this.sections; i++) if (this.dead[i]) return i
+    return -1
   }
 
   /** Boundary angle of section i (radians; boundary 0 at 12 o'clock). */

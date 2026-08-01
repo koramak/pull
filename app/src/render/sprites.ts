@@ -110,11 +110,11 @@ const SHAPES: Record<number, ShapeSpec> = {
 }
 
 const GLOW_COLOR: Record<number, string> = {
-  [MONOLITH]: 'rgba(159,214,232,0.45)',
-  [MEDIUM]: 'rgba(159,214,232,0.45)',
-  [SHARD]: 'rgba(159,214,232,0.40)',
-  [CHIP]: 'rgba(159,214,232,0.30)',
-  [RUBBLE]: 'rgba(159,214,232,0.45)',
+  [MONOLITH]: 'rgba(174,185,196,0.45)',
+  [MEDIUM]: 'rgba(174,185,196,0.45)',
+  [SHARD]: 'rgba(174,185,196,0.40)',
+  [CHIP]: 'rgba(174,185,196,0.30)',
+  [RUBBLE]: 'rgba(174,185,196,0.45)',
   [ORE]: 'rgba(255,226,63,0.85)'
 }
 

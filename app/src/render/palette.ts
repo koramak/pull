@@ -7,10 +7,11 @@ export const PAL = {
   bg: '#05080d',        // field behind everything (kit frame background)
   field: '#04070c',     // stage black inside the tube
 
-  // Dim tube — threats
-  rock: '#9fd6e8',
-  rockLit: '#cdeaf5',   // lit leading edge, 2.4 weight, light from upper-left
-  rockDark: '#7fb4c8',  // hairline dark edge, 1.0 weight
+  // Dim tube — threats. L3: grey/steel, so rocks never share a temperature
+  // with the station under motion blur and peripheral vision.
+  rock: '#aeb9c4',
+  rockLit: '#dae1e7',   // lit leading edge, 2.4 weight, light from upper-left
+  rockDark: '#7e8a95',  // hairline dark edge, 1.0 weight
 
   // Bright tube — reward + station
   ore: '#ffe23f',

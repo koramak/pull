@@ -82,6 +82,11 @@ export const TUNING = {
       { t: 90,  spawnInterval: 0.75, speedBonus: 55, oreChance: 0.32, monolithChance: 0.22 },
       { t: 210, spawnInterval: 0.55, speedBonus: 80, oreChance: 0.30, monolithChance: 0.30 }
     ],
+    // M3 — past the last keyframe the curve never flattens: every value keeps
+    // approaching its limit on a smooth exponential, so the game eventually
+    // becomes genuinely impossible. A continuous slope, never steps.
+    limits: { spawnInterval: 0.34, speedBonus: 150, oreChance: 0.26, monolithChance: 0.42 },
+    limitTau: 180,             // s to close ~63% of the remaining gap
     intervalJitterMin: 0.7,
     intervalJitterMax: 1.3,
     rubbleShareOfHeavies: 0.35 // rubble is a variant of the heavy class
@@ -125,21 +130,24 @@ export const TUNING = {
 
   score: {
     bank: 25,             // ore into the core (×2 while the reservoir is full)
-    smash: 10,
-    deflect: 5
+    smash: 10,            // M1 — chains double it: 10 → 20 → 40 → 80
+    deflect: 5,
+    nearMiss: 5,          // M1 — the detection existed; now it pays
+    chainWindow: 1.5,     // s between smashes that continue a chain
+    chainCap: 3,          // doublings (4 steps total)
+    dangerRing: 120,      // px outside the hull that counts as "close"
+    riskMult: 2           // smashes/deflections inside the ring pay double
   },
 
-  // F2 — deformation derived from the sim. Objects stretch along velocity
-  // (area-conserving), squash on soft contact, and ore idles with a shimmer
-  // so the eye finds the reward.
+  // F2 — deformation derived from the sim. Rocks stretch along velocity
+  // (area-conserving) and squash on soft contact. Ore never deforms — it's
+  // a jewel, not a body (playtest ruling).
   feel: {
     stretchK: 0.16,        // stretch fraction at the reference speed
     stretchRefSpeed: 620,  // px/s of "full" stretch
     stretchMax: 0.24,      // hard cap on the deformation
     squashDur: 0.1,        // s of impact squash after a soft bounce
     squashAmt: 0.2,
-    oreShimmerAmp: 0.045,  // idle scale wobble on ore
-    oreShimmerHz: 2.2,
     gulpDur: 0.18,         // station core "gulp" on a bank
     gulpAmt: 0.12
   },
@@ -172,7 +180,9 @@ export const TUNING = {
     unitsPerBank: 5,      // ore units credited per banked ore
     baseCapacity: 40,     // N2 — 8 banks to the first choice (~35-45s of play)
     capacityGrowth: 1.5,  // CAPACITY track: ×1.5 per purchase
-    spillFraction: 0.25,  // a hull hit takes a quarter of your ore
+    // M4 — capacity buys down spill damage; indexed by capacity purchases.
+    // Gold is only ever banked by hand: there is no passive income, ever.
+    spillByCapacity: [0.25, 0.15, 0.08, 0.04],
     fullPulsePeriod: 1.05 // the only pulsing element in the game
   },
 
@@ -253,16 +263,71 @@ export const TUNING = {
     fullDuration: 3.2
   },
 
+  // M5 — the last hull point is a state, not a number. No text, no red,
+  // no darkening: a cold wash, sparks off the ring, the heartbeat (audio),
+  // and a slow-motion beat when a clutch deflection saves you.
+  critical: {
+    coldWashAlpha: 0.05,  // full-screen cool tint while at one section
+    sparksPerSec: 1.7,
+    sparkLife: 0.22,
+    heartbeatPeriod: 1.15,
+    clutchSlowmo: 0.3,    // s of slow motion on a near-miss at one section
+    clutchScale: 0.4      // sim time multiplier during the beat
+  },
+
+  // M8 — the ore vein: telegraphed abundance. Announced, then delivered.
+  vein: {
+    firstAt: 40,          // s before the first vein can fire
+    every: 55,            // s between veins…
+    jitter: 18,           // …±jitter
+    warn: 1.2,            // s of VEIN INBOUND + edge shimmer before ore
+    count: 5,
+    over: 10,             // s across which the vein's ore arrives
+    speed: 80,
+    spread: 0.25,
+    shimmerDur: 12        // s the edge stays warm (warn + delivery)
+  },
+
+  // N4 — the post-upgrade clear pulse: the build's shockwave shoves the
+  // whole field offscreen. A player-earned breather, not a timer's.
+  clearPulse: {
+    speed: 560,           // px/s outward
+    ringDur: 0.55
+  },
+
+  // L1 — every object leaves a short tapered phosphor trail (the ring
+  // buffer held the history all along; now it draws). Ore runs warmer and
+  // slightly longer. The finger-local echoes layer on top.
+  trails: {
+    rockSamples: 8,       // 60Hz history samples ≈ 133ms of tail
+    oreSamples: 12,       // ≈ 200ms
+    alpha: 0.26,
+    oreAlpha: 0.4,
+    widthFrac: 0.45,      // head width as a fraction of the object radius
+    minSpeed: 30          // px/s below which no trail draws
+  },
+
+  // P4 — the personal best lives inside the run.
+  pb: {
+    nearFrac: 0.85,       // score ≥ this × best brightens the counter
+    calloutFrac: 0.7      // result screen states "N% of your best" above this
+  },
+
   // 22a–22d — the tube gets tired. One float drives everything.
+  // L4 — rebalanced so danger never makes the game harder to read: scanlines
+  // cap lower, the vignette stays off the playfield core, and bloom + the
+  // audio carry the tension. M5 — hull damage now feeds the pressure.
   intensity: {
     clockFloorAt: 270,    // s to reach floor 1.0 (the clock only sets the floor)
     pressureRocks: 26,    // rocks alive that count as full pressure
-    pressureRockWeight: 0.6,
-    pressureFillWeight: 0.4,
+    pressureRockWeight: 0.45,
+    pressureFillWeight: 0.3,
+    pressureHullWeight: 0.25,
+    criticalFloor: 0.75,  // one section left pins intensity at least here
     smoothing: 2.2,       // 1/s toward target
     bloom: { from: 2.4, to: 7.6 },
-    scanAlpha: { from: 0.30, to: 0.54 },
-    vignetteInner: { from: 0.58, to: 0.35 },
+    scanAlpha: { from: 0.30, to: 0.42 },
+    vignetteInner: { from: 0.58, to: 0.48 },
     stars: { from: 0.60, to: 0.16 },
     wobbleFrom: 0.66,     // the 0.7px wobble arrives at 22c and holds
     wobblePx: 0.7,
@@ -332,9 +397,8 @@ export const TUNING = {
     // overlapping chimes always stay consonant.
     ladder: [1, 1.125, 1.25, 1.5, 1.6667, 2],
     bankBaseHz: 660,
-    smashBaseHz: 500,
+    smashBaseHz: 500,     // smash-chain notes follow score.chainWindow's chain
     streakResetAfter: 5,  // s without a bank drops the ladder back down
-    chainWindow: 1.5,     // s between smashes that continue the chain
     pitchJitter: 0.05,    // ±5% on repeated one-shots so they never machine-gun
     collapseDelay: 0.35,  // s of silence under the death stop before the sweep
     voiceWindow: 0.5,     // S4 — minor sounds are dropped when the mix is busy
@@ -376,7 +440,18 @@ export function sampleDifficulty(t: number, out: DifficultySample): DifficultySa
   const first = curve[0]
   const last = curve[curve.length - 1]
   if (t <= first.t) return copy(first, out)
-  if (t >= last.t) return copy(last, out)
+  if (t >= last.t) {
+    // M3 — asymptotic forever: exponential approach from the last keyframe
+    // toward the limits. Continuous with the keyframed section, always
+    // steepening the game, never a step.
+    const L = TUNING.difficulty.limits
+    const f = 1 - Math.exp(-(t - last.t) / TUNING.difficulty.limitTau)
+    out.spawnInterval = last.spawnInterval + (L.spawnInterval - last.spawnInterval) * f
+    out.speedBonus = last.speedBonus + (L.speedBonus - last.speedBonus) * f
+    out.oreChance = last.oreChance + (L.oreChance - last.oreChance) * f
+    out.monolithChance = last.monolithChance + (L.monolithChance - last.monolithChance) * f
+    return out
+  }
   for (let i = 0; i < curve.length - 1; i++) {
     const a = curve[i]
     const b = curve[i + 1]

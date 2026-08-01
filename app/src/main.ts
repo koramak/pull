@@ -62,7 +62,7 @@ on('runStart', () => {
   sim.reset()
   intensity.reset()
   upgrade.cancel()
-  renderer.well.clear()
+  renderer.resetRunVisuals()
   clearFx()
   if (game.phase === 'firstrun') firstRun.start()
   else firstRun.stop()
@@ -92,6 +92,8 @@ else setPhase('title')
 // Choice bookkeeping: where to return after the freeze (run vs firstrun).
 let choiceFrom: 'run' | 'firstrun' = 'run'
 let choiceArm = 0
+// N4 — the clear pulse fires the moment the surge lands (surge → build).
+let prevUpgradeStage = upgrade.stage
 
 // N1/L5 — title attract field: slow drifters aimed loosely across mid-screen.
 let attractTimer = 0
@@ -164,6 +166,10 @@ function frame(now: number): void {
 
   // The upgrade timeline runs through choice AND the surge/build that play
   // over live gameplay after the run resumes.
+  if (prevUpgradeStage === 'surge' && upgrade.stage !== 'surge') {
+    sim.clearPulse() // N4 — the build's shockwave clears the field
+  }
+  prevUpgradeStage = upgrade.stage
   if (upgrade.stage !== 'idle' && phase !== 'paused') {
     const result = upgrade.update(dt, sim)
     if (result === 'resume' && game.phase === 'choice') {

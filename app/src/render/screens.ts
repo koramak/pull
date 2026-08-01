@@ -136,7 +136,7 @@ export function drawTitle(ctx: CanvasRenderingContext2D, l: Layout, t: number): 
 
   ctx.fillStyle = PAL.ink
   ctx.font = `76px ${FONT_NUM}`
-  ctx.shadowColor = 'rgba(159,214,232,0.7)'
+  ctx.shadowColor = 'rgba(174,185,196,0.7)'
   ctx.shadowBlur = 7
   drawTracked(ctx, 'PULL', l.w / 2 + 5, l.safeTop + l.h * 0.176, 10)
   ctx.shadowBlur = 0
@@ -179,7 +179,7 @@ function drawPlayRock(ctx: CanvasRenderingContext2D, x: number, y: number, t: nu
   ctx.scale(T.playRockScale, T.playRockScale)
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
-  ctx.shadowColor = 'rgba(159,214,232,0.45)'
+  ctx.shadowColor = 'rgba(174,185,196,0.45)'
   ctx.shadowBlur = 8
   ctx.strokeStyle = PAL.rockLit
   ctx.lineWidth = 2.4 / T.playRockScale
@@ -232,7 +232,7 @@ export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
     ctx.globalAlpha = a
     ctx.fillStyle = game.newBest ? PAL.ore : PAL.ink
     ctx.font = `96px ${FONT_NUM}`
-    ctx.shadowColor = game.newBest ? 'rgba(255,226,63,0.6)' : 'rgba(159,214,232,0.6)'
+    ctx.shadowColor = game.newBest ? 'rgba(255,226,63,0.6)' : 'rgba(174,185,196,0.6)'
     ctx.shadowBlur = 10
     drawTracked(ctx, String(game.score), l.w / 2 + 3, l.safeTop + l.h * 0.352, 6)
     ctx.shadowBlur = 0
@@ -241,8 +241,16 @@ export function drawResult(ctx: CanvasRenderingContext2D, l: Layout): void {
       ctx.fillStyle = PAL.ore
       drawTracked(ctx, 'NEW BEST', l.w / 2 + 1.5, l.safeTop + l.h * 0.39, 3)
     } else if (game.best > 0) {
-      ctx.fillStyle = PAL.label
-      drawTracked(ctx, `BEST ${game.best}`, l.w / 2 + 1.5, l.safeTop + l.h * 0.39, 3)
+      // P4 — dying close to the best is the highest-motivation moment the
+      // game can produce, but only if it says so.
+      const pct = Math.floor((game.score / game.best) * 100)
+      if (pct >= TUNING.pb.calloutFrac * 100 && pct < 100) {
+        ctx.fillStyle = PAL.labelBright
+        drawTracked(ctx, `${pct}% OF YOUR BEST ${game.best}`, l.w / 2 + 1.5, l.safeTop + l.h * 0.39, 3)
+      } else {
+        ctx.fillStyle = PAL.label
+        drawTracked(ctx, `BEST ${game.best}`, l.w / 2 + 1.5, l.safeTop + l.h * 0.39, 3)
+      }
     }
     ctx.globalAlpha = 1
   }

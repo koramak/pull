@@ -72,7 +72,11 @@ export const fx = {
   /** Hull-hit flicker/tear clock; null when quiet. */
   hull: null as { t: number; profile: HullFxProfile } | null,
   /** M2 — one-line teach under the station while the reservoir is full. */
-  hint: null as { text: string; t: number; dur: number } | null
+  hint: null as { text: string; t: number; dur: number } | null,
+  /** M8 — live vein: which edge is warm, and for how long. */
+  vein: null as { side: number; t: number; dur: number } | null,
+  /** N4 — clear-pulse ring clock (-1 idle). */
+  clearT: -1
 }
 
 let noiseT = 0
@@ -94,7 +98,8 @@ export function initFx(): void {
     if (fx.shocks.length > 6) fx.shocks.shift()
     addTrauma(e.nearStation ? TUNING.trauma.smashNear : TUNING.trauma.smash)
     if (e.bothRocks) {
-      spawnFloat(e.x, e.y - 30, '+' + TUNING.score.smash, PAL.ink, false)
+      // M1 — the float carries the real pay; chains earn the glow
+      spawnFloat(e.x, e.y - 30, '+' + e.value, e.chain > 0 ? PAL.white : PAL.ink, e.chain > 0)
     } else {
       // ore lost — deliberately no glow
       spawnFloat(e.x, e.y - 30, 'ORE LOST', PAL.oreDead, false)
@@ -123,12 +128,24 @@ export function initFx(): void {
   })
 
   on('deflect', e => {
-    spawnFloat(e.x, e.y, '+' + TUNING.score.deflect, PAL.rock, false)
+    spawnFloat(e.x, e.y, '+' + e.value, PAL.rock, false)
   })
 
   on('nearMiss', e => {
     fx.flares.push({ angle: e.angle, gap: e.gap, t: 0 })
     if (fx.flares.length > 3) fx.flares.shift()
+    // M1 — the close call pays, and says so where it happened
+    spawnFloat(e.x, e.y, '+' + TUNING.score.nearMiss, PAL.rockLit, false)
+  })
+
+  // M8 — the vein: edge shimmer + a one-line announcement
+  on('vein', e => {
+    fx.vein = { side: e.side, t: 0, dur: TUNING.vein.shimmerDur }
+  })
+
+  // N4 — the clear pulse's expanding ring
+  on('clearPulse', () => {
+    fx.clearT = 0
   })
 
   on('hullHit', e => {
@@ -177,6 +194,8 @@ export function clearFx(): void {
   fx.bankT = -1
   fx.hull = null
   fx.hint = null
+  fx.vein = null
+  fx.clearT = -1
 }
 
 export function spawnFloat(x: number, y: number, text: string, color: string, glow: boolean): void {
@@ -240,6 +259,14 @@ export function updateFx(dt: number): void {
   if (fx.hint) {
     fx.hint.t += dt
     if (fx.hint.t > fx.hint.dur) fx.hint = null
+  }
+  if (fx.vein) {
+    fx.vein.t += dt
+    if (fx.vein.t > fx.vein.dur) fx.vein = null
+  }
+  if (fx.clearT >= 0) {
+    fx.clearT += dt
+    if (fx.clearT > TUNING.clearPulse.ringDur) fx.clearT = -1
   }
 }
 

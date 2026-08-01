@@ -48,7 +48,8 @@ const K = {
   reduceMotion: 'pull.reduceMotion',
   seenFirstRun: 'pull.seenFirstRun',
   savedRun: 'pull.savedRun',
-  fullHint: 'pull.fullHint'
+  fullHint: 'pull.fullHint',
+  deaths: 'pull.deaths'
 } as const
 
 // --- settings (live object; write-through) ---------------------------------
@@ -104,6 +105,38 @@ export function pushRun(r: RunRecord): void {
 export function resetRecords(): void {
   store.remove(K.best)
   store.remove(K.runs)
+}
+
+// --- death telemetry (M3) ---------------------------------------------------
+// Run-end timestamps, locally. A cluster of deaths at one time value is a
+// churn wall; this is the data the difficulty curve gets tuned against.
+
+export interface DeathRecord {
+  t: number      // run time at death, s
+  score: number
+  at: number     // wall clock, ms
+}
+
+const DEATHS_CAP = 200
+
+export function pushDeath(d: DeathRecord): void {
+  try {
+    const raw = store.get(K.deaths)
+    const arr: DeathRecord[] = raw ? (JSON.parse(raw) as DeathRecord[]) : []
+    arr.push(d)
+    store.set(K.deaths, JSON.stringify(arr.slice(-DEATHS_CAP)))
+  } catch { /* telemetry is best-effort */ }
+}
+
+export function loadDeaths(): DeathRecord[] {
+  try {
+    const raw = store.get(K.deaths)
+    if (!raw) return []
+    const arr = JSON.parse(raw) as DeathRecord[]
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
 }
 
 // --- teaching hints --------------------------------------------------------

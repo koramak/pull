@@ -3,6 +3,8 @@
 
 import { game } from './state'
 import { intensity } from './intensity'
+import { sampleDifficulty } from './config'
+import { loadDeaths } from './storage'
 import type { Sim } from './sim/sim'
 
 let el: HTMLDivElement | null = null
@@ -17,9 +19,10 @@ export function initDebug(sim?: Sim): boolean {
     'position:fixed;bottom:6px;left:6px;z-index:9;color:#7fffd4;font:12px monospace;' +
     'pointer-events:none;white-space:pre;text-shadow:0 1px 2px #000'
   document.body.appendChild(el)
-  // dev/test hook: drive states from the console or an automated harness
+  // dev/test hook: drive states from the console or an automated harness —
+  // sampleDifficulty for curve tuning, loadDeaths for the churn-wall data
   if (sim) {
-    ;(window as unknown as Record<string, unknown>).__pull = { sim, game }
+    ;(window as unknown as Record<string, unknown>).__pull = { sim, game, sampleDifficulty, loadDeaths }
   }
   return true
 }

@@ -50,10 +50,21 @@ export class Sim {
   hullCritical = false
   /** F1 — well strength envelope 0..1: attack on touch, release-decay on lift. */
   wellPower = 0
+  /** M5 — remaining clutch slow-motion, real seconds. */
+  slowmoT = 0
 
   private accumulator = 0
   private stepCounter = 0
   private diff: DifficultySample = { spawnInterval: 1.7, speedBonus: 0, oreChance: 0.32, monolithChance: 0.1 }
+  // M1 — smash chain bookkeeping (game.time based)
+  private chainN = 0
+  private lastSmashAt = -1e9
+  // M8 — vein state: -1 idle, else countdown to the next beat
+  private veinTimer = 0
+  private veinArmed = false
+  private veinSide = 0
+  private veinLeft = 0
+  private veinDrip = 0
 
   constructor(rng: RNG) {
     this.rng = rng
@@ -77,6 +88,13 @@ export class Sim {
     this.freezeT = 0
     this.hullCritical = false
     this.wellPower = 0
+    this.slowmoT = 0
+    this.chainN = 0
+    this.lastSmashAt = -1e9
+    this.veinTimer = TUNING.vein.firstAt
+    this.veinArmed = false
+    this.veinLeft = 0
+    this.veinDrip = 0
   }
 
   /** Clear the live field but keep the station build (restored runs). */
@@ -92,6 +110,12 @@ export class Sim {
   }
 
   frame(scaledDt: number, pointer: PointerState, spawning: boolean): void {
+    // M5 — the clutch beat: the world runs slow for a moment, the finger
+    // stays live. Consumed in real seconds, applied to sim seconds.
+    if (this.slowmoT > 0) {
+      this.slowmoT -= scaledDt
+      scaledDt *= TUNING.critical.clutchScale
+    }
     if (this.freezeT > 0) {
       this.freezeT -= scaledDt
       if (this.freezeT > 0) return
@@ -123,6 +147,7 @@ export class Sim {
     if (spawning && interact) {
       sampleDifficulty(game.time, this.diff)
       this.spawner.update(dt, this.diff, pool, this.rng, this.width, this.height, st.x, st.y)
+      this.updateVein(dt)
     }
 
     // --- gravity well + integration ---
@@ -213,9 +238,25 @@ export class Sim {
     if (rel > TUNING.collision.smashSpeed) {
       // The smash: tiered hit-stop, two thin white rings, the pair is
       // replaced by the next class down, shards spinning out hard.
+      // M1 — chains double the pay (10 → 20 → 40 → 80) and smashing close
+      // to the hull pays double again: greed is voluntary, and it's the
+      // best-paying play in the game.
       const bothRocks = isRock(a.kind) && isRock(b.kind)
+      const S = TUNING.score
+      const sdx = mx - this.station.x
+      const sdy = my - this.station.y
+      const nearTrauma = sdx * sdx + sdy * sdy < TUNING.trauma.smashNearRadius * TUNING.trauma.smashNearRadius
+      let value = 0
+      let chain = 0
       if (bothRocks) {
-        game.score += TUNING.score.smash
+        if (game.time - this.lastSmashAt <= S.chainWindow) this.chainN = Math.min(this.chainN + 1, S.chainCap)
+        else this.chainN = 0
+        this.lastSmashAt = game.time
+        chain = this.chainN
+        value = S.smash << chain
+        const gap = Math.hypot(sdx, sdy) - TUNING.station.radius
+        if (gap < S.dangerRing) value *= S.riskMult
+        game.score += value
         game.smashes++
       }
       this.fragment(a)
@@ -223,10 +264,7 @@ export class Sim {
       a.dead = true
       b.dead = true
       this.hitStop(TUNING.hitStops.smash)
-      const sdx = mx - this.station.x
-      const sdy = my - this.station.y
-      const near = sdx * sdx + sdy * sdy < TUNING.trauma.smashNearRadius * TUNING.trauma.smashNearRadius
-      emit('smash', { x: mx, y: my, bothRocks, nearStation: near })
+      emit('smash', { x: mx, y: my, bothRocks, nearStation: nearTrauma, value, chain })
     } else {
       // Rubble comes apart on a graze — matter, not mass.
       let crumbled = false
@@ -287,6 +325,59 @@ export class Sim {
   }
 
   // -------------------------------------------------------------------------
+
+  /** M8 — the ore vein: announced at an edge, then ~5 ore drift in over
+   *  ~10s. Anticipation is the point. */
+  private updateVein(dt: number): void {
+    const V = TUNING.vein
+    if (this.veinLeft > 0) {
+      // delivering
+      this.veinDrip -= dt
+      if (this.veinDrip <= 0) {
+        this.spawner.spawnKind(ORE, this.pool, this.rng, this.width, this.height, this.station.x, this.station.y, {
+          side: this.veinSide,
+          speed: V.speed * (0.85 + this.rng.next() * 0.3),
+          spread: V.spread
+        })
+        this.veinLeft--
+        this.veinDrip = V.over / V.count
+      }
+      return
+    }
+    this.veinTimer -= dt
+    if (!this.veinArmed) {
+      if (this.veinTimer <= 0) {
+        // announce, then deliver after the warn beat
+        this.veinArmed = true
+        this.veinSide = Math.floor(this.rng.next() * 4)
+        this.veinTimer = V.warn
+        emit('vein', { side: this.veinSide })
+      }
+    } else if (this.veinTimer <= 0) {
+      this.veinArmed = false
+      this.veinLeft = V.count
+      this.veinDrip = 0
+      this.veinTimer = V.every + (this.rng.next() * 2 - 1) * V.jitter
+    }
+  }
+
+  /** N4 — the post-upgrade shockwave: everything is shoved offscreen, with
+   *  no deflection credit — the break itself is the reward. */
+  clearPulse(): void {
+    const st = this.station
+    const speed = TUNING.clearPulse.speed
+    for (let i = 0; i < this.pool.count; i++) {
+      const o = this.pool.objs[i]
+      const dx = o.x - st.x
+      const dy = o.y - st.y
+      const d = Math.hypot(dx, dy) || 1
+      o.vx = (dx / d) * speed
+      o.vy = (dy / d) * speed
+      o.touched = false
+      o.missCredited = true // no near-miss credit on the way out either
+    }
+    emit('clearPulse', undefined)
+  }
 
   private updateShips(dt: number): void {
     const st = this.station
@@ -414,12 +505,16 @@ export class Sim {
       }
 
       // 13d — near-miss: flare on the side the rock passed, gap in pixels.
+      // M1 — it pays now; M5 — at one section a save this close earns a
+      // slow-motion beat (no text — the time itself carries it).
       if (isRock(o.kind) && o.touched && !o.missCredited) {
         const gap = d - sr - o.r
         if (gap < o.minGap) o.minGap = gap
         const receding = d > o.lastDist
         if (receding && o.minGap < NM.maxGap && o.minGap > 0 && Math.hypot(o.vx, o.vy) > NM.minApproachSpeed) {
           o.missCredited = true
+          game.score += TUNING.score.nearMiss
+          if (this.hullCritical) this.slowmoT = TUNING.critical.clutchSlowmo
           emit('nearMiss', { x: o.x, y: o.y, gap: Math.round(o.minGap), angle: Math.atan2(dy, dx) })
         }
       }
@@ -427,10 +522,14 @@ export class Sim {
 
       if (o.x < -margin || o.x > this.width + margin || o.y < -margin || o.y > this.height + margin) {
         if (isRock(o.kind) && o.touched && o.kind !== CHIP) {
-          game.score += TUNING.score.deflect
+          // M1 — a deflection that skimmed the hull pays double
+          const risky = o.minGap < TUNING.score.dangerRing
+          const value = TUNING.score.deflect * (risky ? TUNING.score.riskMult : 1)
+          game.score += value
           emit('deflect', {
             x: Math.max(24, Math.min(this.width - 24, o.x)),
-            y: Math.max(56, Math.min(this.height - 32, o.y))
+            y: Math.max(56, Math.min(this.height - 32, o.y)),
+            value
           })
         }
         pool.kill(i)
@@ -457,7 +556,10 @@ export class Sim {
     const sectionsBefore = st.sections
     const sec = st.damage(angle)
     if (sec < 0) return
-    const spilled = Math.round(st.reservoir * TUNING.reservoir.spillFraction)
+    // M4 — capacity is armor for your gold: each purchase buys the spill down
+    const spillTable = TUNING.reservoir.spillByCapacity
+    const spillFrac = spillTable[Math.min(st.capacity, spillTable.length - 1)]
+    const spilled = Math.round(st.reservoir * spillFrac)
     st.reservoir -= spilled
     // F3 — your worst event stops the world hardest. On the killing hit the
     // freeze bleeds into the collapse timescale (×0.3) → ~400ms real stop.

@@ -31,10 +31,11 @@ let mediaUnlocked = false
 // streak state (S2)
 let bankStreak = 0
 let lastBankAt = -1e9
-let smashChain = 0
-let lastSmashAt = -1e9
 // voice budget (S4)
 const minorVoices: number[] = []
+// M5 — the heartbeat under one-section-left
+let hbCritical = false
+let hbTimer: ReturnType<typeof setInterval> | null = null
 
 function now(): number {
   return ctx ? ctx.currentTime : 0
@@ -175,10 +176,27 @@ function ladderStep(step: number): number {
   return L[step % L.length] * Math.pow(2, Math.min(1, octaves)) // cap one octave up
 }
 
+/** M5 — a soft lub-dub while one section from death. Event-driven state:
+ *  set on the hull hit, cleared by repair, collapse, or a new run. */
+function setHeartbeat(on: boolean): void {
+  if (on === hbCritical) return
+  hbCritical = on
+  if (hbTimer !== null) {
+    clearInterval(hbTimer)
+    hbTimer = null
+  }
+  if (on) {
+    hbTimer = setInterval(() => {
+      if (!ctx || ctx.state !== 'running' || !settings.sound || !hbCritical) return
+      beep(190, 0.09, 'sine', 0.075)
+      beep(285, 0.06, 'sine', 0.045, 0, 0.13)
+    }, TUNING.critical.heartbeatPeriod * 1000)
+  }
+}
+
 export function initAudioEvents(): void {
   on('runStart', () => {
     bankStreak = 0
-    smashChain = 0
     beep(520, 0.1, 'triangle', 0.1)
   })
 
@@ -199,13 +217,10 @@ export function initAudioEvents(): void {
     beep(1320, 0.14, 'triangle', 0.09, 0, 0.09)
   })
 
-  // S2 — smash chains climb too; the crunch stays, the pitch tells the story
+  // S2 — smash chains climb too; the sim's chain drives the note (M1)
   on('smash', e => {
     if (e.bothRocks) {
-      const t = now()
-      smashChain = t - lastSmashAt < TUNING.audio.chainWindow ? smashChain + 1 : 0
-      lastSmashAt = t
-      const f = TUNING.audio.smashBaseHz * ladderStep(Math.min(smashChain, 4))
+      const f = TUNING.audio.smashBaseHz * ladderStep(e.chain)
       beep(f, 0.08, 'square', 0.1)
       noise(0.09, 0.08, 2400)
     } else {
@@ -219,6 +234,7 @@ export function initAudioEvents(): void {
   // speaker actually is; the ladder resets — the run's music falls with you
   on('hullHit', e => {
     bankStreak = 0
+    setHeartbeat(e.alive === 1) // M5 — one section left has a pulse
     duck()
     const severe = e.alive <= 1 || e.sectionsBefore <= 3
     const mid = e.sectionsBefore === 4
@@ -251,6 +267,29 @@ export function initAudioEvents(): void {
     noise(0.03, 0.05, 4000)
   })
   on('surge', () => beep(200, 0.4, 'sawtooth', 0.09, 760))
+
+  // N4 — the shockwave: a bright outward whoosh falling away
+  on('clearPulse', () => {
+    noise(0.32, 0.1, 1900)
+    beep(700, 0.28, 'sawtooth', 0.07, 210)
+  })
+
+  // M8 — the vein announcement: three rising soft notes, gold approaching
+  on('vein', () => {
+    beep(520, 0.1, 'triangle', 0.08)
+    beep(660, 0.1, 'triangle', 0.08, 0, 0.11)
+    beep(880, 0.14, 'triangle', 0.09, 0, 0.22)
+  })
+
+  // M6 — repair: a warm resolve, the opposite of the hull hit
+  on('hullRepair', () => {
+    setHeartbeat(false)
+    beep(440, 0.1, 'triangle', 0.1)
+    beep(660, 0.16, 'triangle', 0.09, 0, 0.09)
+  })
+
+  on('runStart', () => setHeartbeat(false))
+  on('collapse', () => setHeartbeat(false))
 
   // the death stop is silent; the sweep lands as the collapse begins (F3/S1)
   on('collapse', () => {

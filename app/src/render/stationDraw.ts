@@ -19,6 +19,13 @@ export class StationDraw {
   /** Reservoir level the player sees — eases toward the sim value. */
   displayFill = 0
 
+  /** New run: the displayed reservoir must not carry over from the last one
+   *  (it eased toward the live value but was never reset — the "gold starts
+   *  full" bug). */
+  resetRun(): void {
+    this.displayFill = 0
+  }
+
   /** Blit the pre-rendered structure centred on the station. */
   drawStructure(ctx: CanvasRenderingContext2D, st: Station, px: number, alpha: number): void {
     if (!this.buffer || this.rev !== st.structureRev || Math.abs(px - this.px) > 0.01) {

@@ -13,7 +13,7 @@
 
 import { TUNING } from './config'
 import { emit } from './events'
-import { loadBest, saveBest, pushRun, seenFirstRun, clearSavedRun, type SavedRun } from './storage'
+import { loadBest, saveBest, pushRun, pushDeath, seenFirstRun, clearSavedRun, type SavedRun } from './storage'
 
 export type Phase =
   | 'title'
@@ -85,6 +85,7 @@ export function restoreRun(saved: SavedRun): void {
 export function beginCollapse(): void {
   if (game.phase === 'collapse') return
   setPhase('collapse')
+  pushDeath({ t: game.time, score: game.score, at: Date.now() }) // M3 telemetry
   game.newBest = game.score > game.best
   if (game.newBest) {
     game.best = game.score

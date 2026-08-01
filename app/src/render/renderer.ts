@@ -55,6 +55,8 @@ export class Renderer {
   private vigEl: HTMLElement | null = null
   private wobblePhase = 0
   private timeNow = 0
+  /** M5 — short-lived sparks off the ring while one section from death. */
+  private sparks: Array<{ x: number; y: number; vx: number; vy: number; t: number; life: number }> = []
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!
@@ -84,6 +86,12 @@ export class Renderer {
 
   toWorld(cssX: number, cssY: number): { x: number; y: number } {
     return { x: cssX / this.scale, y: cssY / this.scale }
+  }
+
+  /** Clear per-run visual state (well rings, eased reservoir display). */
+  resetRunVisuals(): void {
+    this.well.clear()
+    this.stationDraw.resetRun()
   }
 
   layout(): Layout {
@@ -264,6 +272,45 @@ export class Renderer {
     }
     ctx.globalAlpha = 1
 
+    // L1 — every object leaves a short tapered phosphor tail (the history
+    // ring buffer held it all along). Ore runs warmer and a little longer.
+    const TR = TUNING.trails
+    ctx.lineCap = 'round'
+    for (let i = 0; i < sim.pool.count; i++) {
+      const o = sim.pool.objs[i]
+      if (o.vx * o.vx + o.vy * o.vy < TR.minSpeed * TR.minSpeed) continue
+      const isOre = o.kind === ORE
+      const n = Math.min(isOre ? TR.oreSamples : TR.rockSamples, o.histLen - 1)
+      if (n < 3) continue
+      const baseA = (isOre ? TR.oreAlpha : TR.alpha) * fieldAlpha
+      const hx = o.px + (o.x - o.px) * sim.alpha
+      const hy = o.py + (o.y - o.py) * sim.alpha
+      // a tail shorter than the body would smudge inside the hollow outline —
+      // skip it, and anchor visible tails at the rim, not the centre
+      if (!readHistory(o, n, this.histBuf)) continue
+      const tdx = this.histBuf[0] - hx
+      const tdy = this.histBuf[1] - hy
+      const tailLen = Math.hypot(tdx, tdy)
+      if (tailLen < o.r * 1.35) continue
+      ctx.strokeStyle = isOre ? PAL.ore : PAL.rock
+      let prevX = hx + (tdx / tailLen) * o.r * 0.85
+      let prevY = hy + (tdy / tailLen) * o.r * 0.85
+      for (let s = 1; s <= 3; s++) {
+        const back = Math.round((n * s) / 3)
+        if (!readHistory(o, back, this.histBuf)) break
+        const fade = 1 - (s - 1) / 3
+        ctx.globalAlpha = baseA * fade
+        ctx.lineWidth = Math.max(0.6, o.r * TR.widthFrac * fade)
+        ctx.beginPath()
+        ctx.moveTo(prevX, prevY)
+        ctx.lineTo(this.histBuf[0], this.histBuf[1])
+        ctx.stroke()
+        prevX = this.histBuf[0]
+        prevY = this.histBuf[1]
+      }
+    }
+    ctx.globalAlpha = 1
+
     // 13e — echoes, only inside the well's field
     if (pointer.active && fieldAlpha > 0.5) {
       const E = TUNING.echoes
@@ -299,26 +346,26 @@ export class Renderer {
       const rx = o.px + (o.x - o.px) * sim.alpha
       const ry = o.py + (o.y - o.py) * sim.alpha
 
+      // Ore stays rigid — it's a jewel, not a body. Deformation is for rocks.
       let axis = 0
       let sAlong = 1
       let sCross = 1
-      const speed = Math.hypot(o.vx, o.vy)
-      if (speed > 40) {
-        const e = Math.min(F.stretchMax, F.stretchK * (speed / F.stretchRefSpeed))
-        axis = Math.atan2(o.vy, o.vx)
-        sAlong = 1 + e
-        sCross = 1 / (1 + e)
+      if (o.kind !== ORE) {
+        const speed = Math.hypot(o.vx, o.vy)
+        if (speed > 40) {
+          const e = Math.min(F.stretchMax, F.stretchK * (speed / F.stretchRefSpeed))
+          axis = Math.atan2(o.vy, o.vx)
+          sAlong = 1 + e
+          sCross = 1 / (1 + e)
+        }
+        if (o.squashT > 0) {
+          const q = Math.max(0, Math.min(1, o.squashT / F.squashDur))
+          const s = Math.sin(q * Math.PI) * F.squashAmt
+          sAlong *= 1 - s
+          sCross *= 1 - s * 0.4
+        }
       }
-      if (o.squashT > 0) {
-        const q = Math.max(0, Math.min(1, o.squashT / F.squashDur))
-        const s = Math.sin(q * Math.PI) * F.squashAmt
-        sAlong *= 1 - s
-        sCross *= 1 - s * 0.4
-      }
-      let base = o.r / sprite.nominal
-      if (o.kind === ORE) {
-        base *= 1 + F.oreShimmerAmp * Math.sin(this.timeNow * F.oreShimmerHz * TAU + o.seed)
-      }
+      const base = o.r / sprite.nominal
 
       ctx.globalAlpha = fieldAlpha
       this.blitSprite(ctx, sprite, rx, ry, o.rot, base, axis, sAlong, sCross)
@@ -349,6 +396,44 @@ export class Renderer {
     if (pointer.active || this.well.liveCount() > 0) {
       const wellAlpha = fieldAlpha * (pointer.active ? 1 : Math.max(0.25, sim.wellPower))
       this.well.draw(ctx, pointer.x, pointer.y, wellAlpha)
+    }
+
+    // M5 — one section left: sparks jitter off the ring, and the whole tube
+    // runs a shade colder. No red, no darkening — never blind the clutch.
+    const critical = sim.hullCritical && (game.phase === 'run' || game.phase === 'firstrun')
+    if (critical && Math.random() < TUNING.critical.sparksPerSec * dt) {
+      const a = Math.random() * TAU
+      const sp = 40 + Math.random() * 60
+      this.sparks.push({
+        x: st.x + Math.cos(a) * TUNING.station.radius,
+        y: st.y + Math.sin(a) * TUNING.station.radius,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        t: 0,
+        life: TUNING.critical.sparkLife
+      })
+    }
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i]
+      s.t += dt
+      if (s.t > s.life) { this.sparks.splice(i, 1); continue }
+      s.x += s.vx * dt
+      s.y += s.vy * dt
+      const f = s.t / s.life
+      ctx.globalAlpha = fieldAlpha * (1 - f)
+      ctx.strokeStyle = PAL.station
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(s.x, s.y)
+      ctx.lineTo(s.x + s.vx * 0.06, s.y + s.vy * 0.06)
+      ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+    if (critical) {
+      ctx.globalAlpha = TUNING.critical.coldWashAlpha * (0.8 + 0.2 * Math.sin(this.timeNow * 2))
+      ctx.fillStyle = 'rgb(150,180,215)'
+      ctx.fillRect(0, 0, this.worldW, this.worldH)
+      ctx.globalAlpha = 1
     }
 
     ctx.restore()
@@ -427,6 +512,55 @@ export class Renderer {
       ctx.stroke()
       ctx.restore()
     }
+    // N4 — the clear pulse: one bright ring shoving the field offscreen
+    if (fx.clearT >= 0) {
+      const f = fx.clearT / TUNING.clearPulse.ringDur
+      const r = 15 + f * Math.max(this.worldW, this.worldH) * 0.8
+      ctx.globalAlpha = fieldAlpha * (1 - f) * 0.85
+      ctx.strokeStyle = PAL.station
+      ctx.lineWidth = 2.4 - 1.2 * f
+      ctx.shadowColor = 'rgba(94,242,214,0.6)'
+      ctx.shadowBlur = 8
+      ctx.beginPath()
+      ctx.arc(st.x, st.y, r, 0, TAU)
+      ctx.stroke()
+      ctx.shadowBlur = 0
+    }
+
+    // M8 — the vein: one screen edge runs warm while gold is inbound
+    if (fx.vein) {
+      const v = fx.vein
+      const fade = 1 - v.t / v.dur
+      const pulse = 0.7 + 0.3 * Math.sin(this.timeNow * 5)
+      const a = 0.15 * fade * pulse * fieldAlpha
+      const w = this.worldW
+      const h = this.worldH
+      const D = 30 // strip depth
+      let grad: CanvasGradient
+      if (v.side === 0) grad = ctx.createLinearGradient(0, 0, 0, D)
+      else if (v.side === 1) grad = ctx.createLinearGradient(w, 0, w - D, 0)
+      else if (v.side === 2) grad = ctx.createLinearGradient(0, h, 0, h - D)
+      else grad = ctx.createLinearGradient(0, 0, D, 0)
+      grad.addColorStop(0, `rgba(255,226,63,${a})`)
+      grad.addColorStop(1, 'rgba(255,226,63,0)')
+      ctx.fillStyle = grad
+      if (v.side === 0) ctx.fillRect(0, 0, w, D)
+      else if (v.side === 1) ctx.fillRect(w - D, 0, D, h)
+      else if (v.side === 2) ctx.fillRect(0, h - D, w, D)
+      else ctx.fillRect(0, 0, D, h)
+      if (v.t < 1.7) {
+        const ta = v.t < 0.15 ? v.t / 0.15 : v.t > 1.35 ? Math.max(0, (1.7 - v.t) / 0.35) : 1
+        ctx.globalAlpha = ta * fieldAlpha
+        ctx.fillStyle = PAL.ore
+        ctx.font = `12px ${FONT_LABEL}`
+        ctx.textAlign = 'center'
+        const tx = v.side === 1 ? w - 74 : v.side === 3 ? 74 : w / 2
+        const ty = v.side === 0 ? 54 : v.side === 2 ? h - 44 : h / 2
+        ctx.fillText('VEIN INBOUND', tx, ty)
+        ctx.globalAlpha = 1
+      }
+    }
+
     // 13d — near-miss flare with the gap in pixels
     for (const fl of fx.flares) {
       const f = fl.t / TUNING.nearMiss.flareDuration
@@ -434,7 +568,7 @@ export class Renderer {
       ctx.globalAlpha = fieldAlpha * a
       ctx.strokeStyle = PAL.rockLit
       ctx.lineWidth = 2.5
-      ctx.shadowColor = 'rgba(205,234,245,0.8)'
+      ctx.shadowColor = 'rgba(218,225,231,0.8)'
       ctx.shadowBlur = 8
       const r = 48 + 6 * f
       ctx.beginPath()
@@ -482,16 +616,25 @@ export class Renderer {
 
   private drawScore(ctx: CanvasRenderingContext2D, l: Layout, alpha: number): void {
     if (alpha <= 0.01) return
+    // P4 — the personal best lives inside the run; closing on it, the
+    // counter itself leans in.
+    const near = game.best > 0 && game.score >= game.best * TUNING.pb.nearFrac && !game.newBest
     ctx.globalAlpha = alpha
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
     ctx.font = `62px ${FONT_NUM}`
-    ctx.fillStyle = PAL.ink
+    ctx.fillStyle = near || game.score > game.best ? PAL.white : PAL.ink
     // only the score blooms among type
-    ctx.shadowColor = 'rgba(159,214,232,0.8)'
-    ctx.shadowBlur = 6
-    ctx.fillText(String(game.score), 22, Math.max(62, l.safeTop + 52))
+    ctx.shadowColor = 'rgba(174,185,196,0.8)'
+    ctx.shadowBlur = near ? 12 : 6
+    const sy = Math.max(62, l.safeTop + 52)
+    ctx.fillText(String(game.score), 22, sy)
     ctx.shadowBlur = 0
+    if (game.best > 0) {
+      ctx.font = `11px ${FONT_LABEL}`
+      ctx.fillStyle = near ? PAL.labelBright : PAL.label
+      ctx.fillText(`BEST ${game.best}`, 24, sy + 20)
+    }
     ctx.globalAlpha = 1
   }
 
