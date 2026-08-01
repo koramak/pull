@@ -16,7 +16,9 @@ Before doing anything else:
 
 ## Environment (Zane's Mac — verified 2026-08-01)
 
-- Available: `git` (HTTPS auth via keychain), `python3`, `curl`.
+- Available: `git` (HTTPS auth via keychain), `python3`, `curl`. Shell is
+  zsh — `status` is a read-only builtin and `path` mirrors PATH; using either
+  as a script variable name breaks the script.
 - NOT available: node/npm, `gh`, Homebrew, Xcode, Playwright. The npm and
   scripted-playtest workflows in the status doc only work in cloud (CCR)
   sessions — don't run them here, they fail. If local build tooling is ever
@@ -26,6 +28,9 @@ Before doing anything else:
   - `git status && git log --oneline -3` — tree clean, synced with origin?
   - `curl -s "https://api.github.com/repos/koramak/pull/actions/runs?per_page=1"`
     — latest run `"conclusion": "success"`?
+  - After pushing, verify that exact commit deployed:
+    `curl -s "https://api.github.com/repos/koramak/pull/actions/runs?head_sha=$(git rev-parse HEAD)&per_page=1"`
+    — the API needs the full 40-char SHA; a short SHA silently matches nothing.
   - `curl -s https://koramak.github.io/pull/ | grep -m1 '<title>'` — live page up?
   - Hands-on checks: play the live URL in the in-app browser.
 - `DELETE ME/` at the repo root is untracked, verified-redundant staging —
