@@ -57,11 +57,14 @@ leaderboard if it returns).
    `reservoir.baseCapacity` is the knob), ship damage/knockback (2/90),
    chain window/cap, vein cadence. All in `config.ts`.
 
-## Dev workflow (any session)
+## Dev workflow
 
-- `cd app && npm install && npm run typecheck && npm run build`; dev server
-  `npm run dev`. Deploy = push to `main` (Actions builds `app/dist` +
-  copies `prototype/`). Verify the run goes green.
+- Build tooling (node/npm, Playwright) exists only in cloud (CCR) sessions —
+  Zane's Mac has git/python3/curl only (see CLAUDE.md → Environment, which
+  also has the no-npm state-check recipe). In a cloud session:
+  `cd app && npm install && npm run typecheck && npm run build`; dev server
+  `npm run dev`. Deploy from anywhere = push to `main` (Actions builds
+  `app/dist` + copies `prototype/`). Verify the run goes green.
 - **Playtesting headless:** serve `app/dist` (`python3 -m http.server`),
   open with Playwright (chromium at `/opt/pw-browsers/…` in CCR sandboxes),
   add `?debug` — `window.__pull` exposes `{sim, game, sampleDifficulty,

@@ -1,5 +1,10 @@
 # PULL — session bootstrap
 
+Zane usually opens with "continue as lead — where do things stand?" The job:
+sync, verify (recipe below), give a short status + what's next, then get to
+work. Most sessions exist to put the latest design live (push to `main` →
+Actions deploys) and keep this local clone synced as the backup copy.
+
 Before doing anything else:
 
 1. **`git pull` first.** Local clones on this Mac have gone stale before (once
@@ -8,6 +13,23 @@ Before doing anything else:
 3. **Read `docs/pull-build-instructions.md`** — Zane's per-item rulings
    (approvals/rejections/modifications, IDs like F1/M3/P5). Where it and
    `docs/pull-improvement-report.md` disagree, the instructions win.
+
+## Environment (Zane's Mac — verified 2026-08-01)
+
+- Available: `git` (HTTPS auth via keychain), `python3`, `curl`.
+- NOT available: node/npm, `gh`, Homebrew, Xcode, Playwright. The npm and
+  scripted-playtest workflows in the status doc only work in cloud (CCR)
+  sessions — don't run them here, they fail. If local build tooling is ever
+  needed, ask Zane before installing anything.
+- Deploying needs no local tooling: push to `main`, Actions builds + deploys.
+- Fast state check (works from any machine, no npm):
+  - `git status && git log --oneline -3` — tree clean, synced with origin?
+  - `curl -s "https://api.github.com/repos/koramak/pull/actions/runs?per_page=1"`
+    — latest run `"conclusion": "success"`?
+  - `curl -s https://koramak.github.io/pull/ | grep -m1 '<title>'` — live page up?
+  - Hands-on checks: play the live URL in the in-app browser.
+- `DELETE ME/` at the repo root is untracked, verified-redundant staging —
+  it is Zane's to delete whenever he wants. Ignore it.
 
 Standing rules:
 
@@ -19,7 +41,8 @@ Standing rules:
 - All tuning values live in `app/src/config.ts`. `app/` is the game;
   `prototype/` is frozen history. Deploy = push to `main` (GitHub Actions).
 - **End every session by updating `docs/pull-status.md`** and pushing — it is
-  the cross-session handoff document.
+  the cross-session handoff document. Leave nothing unpushed: the remote is
+  the product, this clone is the backup, and both should match at handoff.
 
 Delegate mechanical grunt work (bulk file reading, searching, scripted
 playtests) to subagents to keep the main context lean; keep design decisions
