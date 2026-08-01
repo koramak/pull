@@ -73,5 +73,8 @@ leaderboard if it returns).
   between probe pages or taps will hit the PAUSED screen.
 - Storage keys all start `pull.` (best/runs/deaths/missions/settings/…).
 - One session owns this repo at a time (Zane's rule after a three-session
-  collision). The report + research digests live in koramak/Test
-  (`PULL-IMPROVEMENT-REPORT.md`, `report-assets/research/`).
+  collision). The improvement report is `docs/pull-improvement-report.md`
+  (the instructions doc's item IDs map to it). Its attachments — playtest
+  stills (`report-assets/*.png`) and the six research digests
+  (`report-assets/research/`) — lived in koramak/Test, which currently 404s;
+  ask Zane if they're needed.
