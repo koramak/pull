@@ -13,12 +13,15 @@ Before doing anything else:
 3. **Read `docs/pull-build-instructions.md`** — Zane's per-item rulings
    (approvals/rejections/modifications, IDs like F1/M3/P5). Where it and
    `docs/pull-improvement-report.md` disagree, the instructions win.
+4. **Skim `docs/pull-lessons.md`** — a one-bullet-per-mistake log of process
+   errors past sessions made, with fixes. When you make and solve a new one
+   this session, append it there immediately (one bullet, symptom → cause →
+   fix). This is how sessions compound instead of repeating each other.
 
 ## Environment (Zane's Mac — verified 2026-08-01)
 
-- Available: `git` (HTTPS auth via keychain), `python3`, `curl`. Shell is
-  zsh — `status` is a read-only builtin and `path` mirrors PATH; using either
-  as a script variable name breaks the script.
+- Available: `git` (HTTPS auth via keychain), `python3`, `curl`; shell is zsh
+  (known zsh scripting gotchas are in the lessons log).
 - NOT available: node/npm, `gh`, Homebrew, Xcode, Playwright. The npm and
   scripted-playtest workflows in the status doc only work in cloud (CCR)
   sessions — don't run them here, they fail. If local build tooling is ever
