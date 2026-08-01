@@ -74,7 +74,6 @@ leaderboard if it returns).
 - Storage keys all start `pull.` (best/runs/deaths/missions/settings/…).
 - One session owns this repo at a time (Zane's rule after a three-session
   collision). The improvement report is `docs/pull-improvement-report.md`
-  (the instructions doc's item IDs map to it). Its attachments — playtest
-  stills (`report-assets/*.png`) and the six research digests
-  (`report-assets/research/`) — lived in koramak/Test, which currently 404s;
-  ask Zane if they're needed.
+  (the instructions doc's item IDs map to it), with its playtest stills and
+  the six research digests alongside in `docs/report-assets/`. Everything
+  is self-contained in this repo; koramak/Test is no longer needed.
