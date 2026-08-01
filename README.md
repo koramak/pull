@@ -22,19 +22,38 @@ Every push to `main` builds and deploys the game to GitHub Pages via Actions.
 
 ## Architecture (app/)
 
-- `src/config.ts` — every tuning value in one hot-reloadable object; the
-  difficulty director is a keyframed curve sampled by run time
-- `src/sim/` — fixed-timestep simulation (120 Hz, interpolated render):
-  pooled objects, uniform-grid collisions, table-driven spawner
-- `src/render/` — Canvas 2D renderer, reads sim state + interpolation alpha
-- `src/fx/` — pooled particles, floating text, screen shake, well infall
-- `src/events.ts` — typed event bus (spawn / smash / bank / hullHit /
-  deflect / death) so meta systems attach without touching the sim
-- `src/audio.ts` — WebAudio synth, created on first gesture
-- `src/rng.ts` — seedable RNG seam for a future daily-run mode
-- `src/storage.ts` — storage adapter (localStorage with in-memory fallback)
+The visual + systems spec is the Claude Design "PULL — Phosphor Kit"
+(chosen direction: phosphor CRT). Everything emits, nothing reflects;
+threat sits on the dim tube, reward on the bright one.
 
-Debug overlay: append `?debug` to the URL (fps, object count, ramp values).
+- `src/config.ts` — every tuning value in one hot-reloadable object, in
+  kit units (the design's 393×852 stage; the renderer scales uniformly)
+- `src/state.ts` — kit 24a state machine: TITLE · FIRSTRUN · RUN · CHOICE ·
+  PAUSED · COLLAPSE · RESULT · SETTINGS
+- `src/sim/` — fixed-timestep simulation (120 Hz, interpolated render):
+  pooled objects, uniform-grid collisions, the monolith/rubble rock ladder
+  (each smash yields the next class down; nothing has fewer than four
+  sides), hull sections 3→6, the reservoir, ships on the r61 patrol,
+  42 ms hit-stop, near-miss detection
+- `src/render/` — the phosphor tube: wireframe sprites with baked bloom,
+  rotating three-layer starfield (150/240/400 s), station structure buffer
+  (ring + flares + truss rails + tooth comb), the 31a contracting-ring well
+  with dust, 13e echoes under the finger, hull-hit tear + flicker scaled by
+  hull resolution, the CRT power-off collapse, and the shell screens
+- `src/upgrade.ts` — the choice: reservoir full + release → freeze to 16%,
+  three preview plates in a triangle, flick, white lock flash, inward
+  surge, structure builds over live play
+- `src/intensity.ts` — 22a–22d as one float driving bloom, scanline alpha,
+  vignette and starfield (pressure-driven; the clock only sets the floor)
+- `src/firstrun.ts` — wordless onboarding: bank one ore, dodge one rock,
+  make one choice
+- `src/fx/`, `src/events.ts` — typed event bus + pooled transient visuals
+- `src/audio.ts`, `src/haptics.ts` — WebAudio synth + vibration map, both
+  behind the SETTINGS toggles
+- `src/storage.ts` — saved keys: best · runs · sound · haptics ·
+  reduceMotion · seenFirstRun · savedRun
+
+Debug overlay + console handle (`window.__pull`): append `?debug`.
 
 ## Develop
 

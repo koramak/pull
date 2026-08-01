@@ -1,40 +1,12 @@
-// Edge spawner driven by the difficulty director curve.
-// Object kinds are table-driven so a third type (heavy rock, splitter…)
-// drops in without touching spawn logic: add an entry and a weight source.
+// Edge spawner driven by the difficulty director. Kinds are table-driven:
+// ore, medium rocks, and the heavy class — which is a monolith or, some of
+// the time, a rubble cluster that comes apart on a graze. Shards and chips
+// only ever come from splits.
 
-import { TUNING, sampleDifficulty, type DifficultySample } from '../config'
+import { TUNING, type DifficultySample } from '../config'
 import type { RNG } from '../rng'
 import { emit } from '../events'
-import { ObjectPool, ROCK, ORE } from './pool'
-
-const diff: DifficultySample = { spawnInterval: 1.7, speedBonus: 0, oreChance: 0.32 }
-
-export interface SpawnKind {
-  id: number
-  /** Weight at the current difficulty sample (0 disables). */
-  weight(d: DifficultySample): number
-  /** Configure the freshly pooled object (radius, spin…). */
-  configure(o: import('./pool').GameObject, rng: RNG): void
-}
-
-const KINDS: SpawnKind[] = [
-  {
-    id: ROCK,
-    weight: d => 1 - d.oreChance,
-    configure(o, rng) {
-      o.type = ROCK
-      o.r = rng.range(TUNING.objects.rockRadiusMin, TUNING.objects.rockRadiusMax)
-    }
-  },
-  {
-    id: ORE,
-    weight: d => d.oreChance,
-    configure(o, rng) {
-      o.type = ORE
-      o.r = TUNING.objects.oreRadius
-    }
-  }
-]
+import { ObjectPool, ORE, MONOLITH, MEDIUM, RUBBLE } from './pool'
 
 export class Spawner {
   private timer: number = TUNING.spawn.firstDelay
@@ -43,62 +15,71 @@ export class Spawner {
     this.timer = TUNING.spawn.firstDelay
   }
 
-  /** Current difficulty sample (also displayed by the debug overlay). */
-  sample(time: number): DifficultySample {
-    return sampleDifficulty(time, diff)
-  }
-
-  update(dt: number, time: number, pool: ObjectPool, rng: RNG, w: number, h: number, sx: number, sy: number): void {
+  update(dt: number, diff: DifficultySample, pool: ObjectPool, rng: RNG, w: number, h: number, sx: number, sy: number): void {
     this.timer -= dt
     if (this.timer > 0) return
-    sampleDifficulty(time, diff)
-    this.spawnOne(pool, rng, w, h, sx, sy)
+    this.spawnOne(diff, pool, rng, w, h, sx, sy)
     const jitter = rng.range(TUNING.difficulty.intervalJitterMin, TUNING.difficulty.intervalJitterMax)
     this.timer = diff.spawnInterval * jitter
   }
 
-  private spawnOne(pool: ObjectPool, rng: RNG, w: number, h: number, sx: number, sy: number): void {
+  /** Spawn a single object of an explicit kind (first-run beats). */
+  spawnKind(kind: number, pool: ObjectPool, rng: RNG, w: number, h: number, sx: number, sy: number, opts?: { side?: number; speed?: number; spread?: number }): void {
+    this.place(kind, pool, rng, w, h, sx, sy, 0, opts)
+  }
+
+  private spawnOne(diff: DifficultySample, pool: ObjectPool, rng: RNG, w: number, h: number, sx: number, sy: number): void {
+    const roll = rng.next()
+    let kind: number
+    if (roll < diff.oreChance) kind = ORE
+    else if (roll < diff.oreChance + diff.monolithChance) {
+      kind = rng.next() < TUNING.difficulty.rubbleShareOfHeavies ? RUBBLE : MONOLITH
+    } else kind = MEDIUM
+    this.place(kind, pool, rng, w, h, sx, sy, diff.speedBonus)
+  }
+
+  private place(kind: number, pool: ObjectPool, rng: RNG, w: number, h: number, sx: number, sy: number, speedBonus: number, opts?: { side?: number; speed?: number; spread?: number }): void {
     const o = pool.spawn()
-    if (!o) return // pool exhausted; skip rather than allocate
+    if (!o) return
 
     const m = TUNING.spawn.edgeMargin
-    const side = Math.floor(rng.next() * 4)
+    const side = opts?.side ?? Math.floor(rng.next() * 4)
     let x: number, y: number
     if (side === 0) { x = rng.next() * w; y = -m }
     else if (side === 1) { x = w + m; y = rng.next() * h }
     else if (side === 2) { x = rng.next() * w; y = h + m }
     else { x = -m; y = rng.next() * h }
 
-    // Aim at the station, rotated by a random spread
     let ax = sx - x
     let ay = sy - y
     const dist = Math.hypot(ax, ay) || 1
-    const spread = rng.range(-TUNING.spawn.aimSpread, TUNING.spawn.aimSpread)
+    const spreadMax = opts?.spread ?? TUNING.spawn.aimSpread
+    const spread = rng.range(-spreadMax, spreadMax)
     const ca = Math.cos(spread)
     const sa = Math.sin(spread)
     const dx = (ax * ca - ay * sa) / dist
     const dy = (ax * sa + ay * ca) / dist
 
-    const speed = rng.range(TUNING.spawn.speedMin, TUNING.spawn.speedMax) + diff.speedBonus
+    const speed = opts?.speed ?? rng.range(TUNING.spawn.speedMin, TUNING.spawn.speedMax) + speedBonus
 
-    // Weighted kind pick
-    let total = 0
-    for (let i = 0; i < KINDS.length; i++) total += KINDS[i].weight(diff)
-    let roll = rng.next() * total
-    let kind = KINDS[0]
-    for (let i = 0; i < KINDS.length; i++) {
-      roll -= KINDS[i].weight(diff)
-      if (roll <= 0) { kind = KINDS[i]; break }
+    const R = TUNING.rocks
+    o.kind = kind
+    if (kind === ORE) {
+      o.r = R.ore.r
+      o.hp = 1
+      o.rs = rng.range(-0.9, 0.9)
+    } else {
+      const cfg = kind === MONOLITH ? R.monolith : kind === RUBBLE ? R.rubble : R.medium
+      o.r = rng.range(cfg.rMin, cfg.rMax)
+      o.hp = cfg.hp
+      o.rs = rng.range(-cfg.spinMax, cfg.spinMax)
     }
-
     o.x = x; o.y = y; o.px = x; o.py = y
     o.vx = dx * speed
     o.vy = dy * speed
     o.rot = rng.next() * 7
-    o.rs = rng.range(-TUNING.objects.spinMax, TUNING.objects.spinMax)
     o.seed = rng.next() * 1000
-    kind.configure(o, rng)
 
-    emit('spawn', { type: o.type === ORE ? 'ore' : 'rock', x, y })
+    emit('spawn', { kind: String(kind), x, y })
   }
 }
