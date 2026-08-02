@@ -415,18 +415,6 @@ export class Renderer {
 
     this.drawFieldFx(ctx, sim, fieldAlpha)
 
-    // first-run guide — the trajectory your pull is giving the ore
-    if (game.phase === 'firstrun' && firstRun.guide.length >= 4) {
-      ctx.strokeStyle = rgba(PAL.ore, 0.38)
-      ctx.lineWidth = 1
-      ctx.setLineDash([3, 6])
-      ctx.beginPath()
-      ctx.moveTo(firstRun.guide[0], firstRun.guide[1])
-      for (let i = 2; i < firstRun.guide.length; i += 2) ctx.lineTo(firstRun.guide[i], firstRun.guide[i + 1])
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
     // the well — on, or gone
     if (pointer.active || this.well.liveCount() > 0) {
       this.well.draw(ctx, pointer.x, pointer.y, fieldAlpha)

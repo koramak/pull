@@ -1,6 +1,7 @@
 // First run — no words (kit 24f). Three beats, each waits forever:
-//   1. one ore drifts in; hold to curl it into the core. A dashed gold guide
-//      draws the trajectory your pull is giving it.
+//   1. one ore drifts in; hold to curl it into the core. (The dashed
+//      trajectory guide this beat once drew was removed by playtest ruling —
+//      no predictive lines anywhere.)
 //   2. a rock to dodge — curve it away from the station (it cannot hurt you
 //      here; a hit just resets the beat).
 //   3. the upgrade choice — the reservoir arrives full and the normal
@@ -16,8 +17,6 @@ import type { Sim, PointerState } from './sim/sim'
 
 class FirstRun {
   beat: 0 | 1 | 2 | 3 = 0 // 0 = inactive
-  /** Predicted trajectory points (world units, x,y pairs) for the guide. */
-  guide: number[] = []
   /** Seconds since the last touch — drives the fingertip hint. */
   untouchedT = 0
 
@@ -33,12 +32,10 @@ class FirstRun {
     this.done1 = false
     this.done2 = false
     this.untouchedT = 0
-    this.guide.length = 0
   }
 
   stop(): void {
     this.beat = 0
-    this.guide.length = 0
   }
 
   init(): void {
@@ -59,11 +56,9 @@ class FirstRun {
         this.beat = 2
         this.needSpawn = true
         this.spawnDelay = 1.0
-        this.guide.length = 0
         return
       }
       this.ensureObject(sim, ORE)
-      this.updateGuide(sim, pointer)
     } else if (this.beat === 2) {
       if (this.done2) {
         this.beat = 3
@@ -105,39 +100,6 @@ class FirstRun {
       sim.spawner.spawnKind(MONOLITH, sim.pool, sim.rng, sim.width, sim.height, sim.station.x, sim.station.y, {
         side: 0, speed: 55, spread: 0.05
       })
-    }
-  }
-
-  /** Cheap forward integration of the lone ore under the current pull. */
-  private updateGuide(sim: Sim, pointer: PointerState): void {
-    this.guide.length = 0
-    if (sim.pool.count === 0) return
-    const o = sim.pool.objs[0]
-    if (o.kind !== ORE) return
-    let x = o.x
-    let y = o.y
-    let vx = o.vx
-    let vy = o.vy
-    const W = TUNING.well
-    const step = 1 / 30
-    const steps = Math.floor(TUNING.firstRun.guideLookahead * 30)
-    for (let i = 0; i < steps; i++) {
-      if (pointer.active) {
-        const dx = pointer.x - x
-        const dy = pointer.y - y
-        const d2 = dx * dx + dy * dy
-        const d = Math.sqrt(d2) || 1
-        let a = W.strength / (d2 + W.softening)
-        if (a > W.maxAccel) a = W.maxAccel
-        vx += (dx / d) * a * step
-        vy += (dy / d) * a * step
-      }
-      x += vx * step
-      y += vy * step
-      if ((i & 1) === 0) this.guide.push(x, y)
-      const ddx = x - sim.station.x
-      const ddy = y - sim.station.y
-      if (ddx * ddx + ddy * ddy < TUNING.station.radius * TUNING.station.radius) break
     }
   }
 }

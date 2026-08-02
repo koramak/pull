@@ -422,7 +422,6 @@ export const TUNING = {
 
   firstRun: {
     hintAfter: 2.5,       // s of no touch before the fingertip hint pulses
-    guideLookahead: 2.6,  // s of trajectory drawn for the beat-one guide
     holdX: 0.5,           // suggested hold point (fractions of viewport)
     holdY: 0.82
   },
