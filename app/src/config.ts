@@ -151,14 +151,10 @@ export const TUNING = {
     gulpAmt: 0.12
   },
 
-  // F3 — hit-stop tiers by meaning (the world freezes; the finger never does).
-  // The hull value is deliberately long: your worst moment stops the world.
-  // On death it bleeds into the collapse timescale (×0.3) → ~400ms real stop.
-  hitStops: {
-    bank: 0.03,
-    smash: 0.05,
-    hull: 0.12
-  },
+  // Hit-stop: one flat beat on smash and hull hit, none on bank — the
+  // artifact-era feel (F3's tiers were removed by playtest ruling). The
+  // world freezes; the finger never does.
+  hitStop: 0.042,
 
   // F4 — trauma screen shake: add per event, amplitude = trauma², driven by
   // smooth noise with a little roll. Overlapping hits compound and cap at 1.

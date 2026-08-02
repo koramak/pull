@@ -280,7 +280,7 @@ export class Sim {
       this.fragment(b)
       a.dead = true
       b.dead = true
-      this.hitStop(TUNING.hitStops.smash)
+      this.hitStop(TUNING.hitStop)
       emit('smash', { x: mx, y: my, bothRocks, nearStation: nearTrauma, value, chain, risky })
     } else {
       // Rubble comes apart on a graze — matter, not mass.
@@ -571,7 +571,6 @@ export class Sim {
     game.oreTotal += R.unitsPerBank
     const wasFull = st.reservoirFull()
     st.reservoir = Math.min(st.reservoirCap, st.reservoir + R.unitsPerBank)
-    this.hitStop(TUNING.hitStops.bank) // F3 — a beat of weight on the swallow
     emit('bank', { x: st.x, y: st.y, score: gain, doubled })
     if (!wasFull && st.reservoirFull()) emit('reservoirFull', undefined)
   }
@@ -586,9 +585,7 @@ export class Sim {
     const spillFrac = spillTable[Math.min(st.capacity, spillTable.length - 1)]
     const spilled = Math.round(st.reservoir * spillFrac)
     st.reservoir -= spilled
-    // F3 — your worst event stops the world hardest. On the killing hit the
-    // freeze bleeds into the collapse timescale (×0.3) → ~400ms real stop.
-    this.hitStop(TUNING.hitStops.hull)
+    this.hitStop(TUNING.hitStop)
     const alive = st.aliveCount()
     this.hullCritical = alive === 1
     emit('hullHit', { sectionsBefore, alive, x: st.x, y: st.y, angle })
