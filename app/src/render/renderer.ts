@@ -427,10 +427,9 @@ export class Renderer {
       ctx.setLineDash([])
     }
 
-    // the well — on, or decaying out with the F1 release envelope
+    // the well — on, or gone
     if (pointer.active || this.well.liveCount() > 0) {
-      const wellAlpha = fieldAlpha * (pointer.active ? 1 : Math.max(0.25, sim.wellPower))
-      this.well.draw(ctx, pointer.x, pointer.y, wellAlpha)
+      this.well.draw(ctx, pointer.x, pointer.y, fieldAlpha)
     }
 
     // L5 — the ghost finger on the title: a dashed fingertip where the

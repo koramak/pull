@@ -51,8 +51,6 @@ export class Sim {
   freezeT = 0
   /** True while one section from death — full-alarm flag layered on RUN. */
   hullCritical = false
-  /** F1 — well strength envelope 0..1: attack on touch, release-decay on lift. */
-  wellPower = 0
   /** F5/M5 — remaining slow-motion (real seconds) and its time scale. */
   slowmoT = 0
   slowmoScale = 1
@@ -93,7 +91,6 @@ export class Sim {
     this.stepCounter = 0
     this.freezeT = 0
     this.hullCritical = false
-    this.wellPower = 0
     this.slowmoT = 0
     this.slowmoScale = 1
     this.chainN = 0
@@ -176,19 +173,13 @@ export class Sim {
     }
 
     // --- gravity well + integration ---
-    // F1 — the grab: strength envelope ramps in with ease-out on touch and
-    // decays after release, so the force feels physical and a thumb slip
-    // mid-slingshot keeps the curve alive for a beat.
-    const W = TUNING.well
-    if (pointer.active) this.wellPower = Math.min(1, this.wellPower + dt / W.attack)
-    else this.wellPower = Math.max(0, this.wellPower - dt / W.release)
-    const p = this.wellPower
-    const envelope = 1 - (1 - p) * (1 - p) // smooth-stop: fast start, soft landing
-    const wellOn = envelope > 0.002
-    const strength = W.strength
-    const softening = W.softening
-    const maxA = W.maxAccel
-    const touchA = W.touchAccel
+    // Binary on/off, full strength the frame you touch (the pre-review
+    // phosphor feel — the F1 envelope was reverted by playtest ruling).
+    const wellOn = pointer.active
+    const strength = TUNING.well.strength
+    const softening = TUNING.well.softening
+    const maxA = TUNING.well.maxAccel
+    const touchA = TUNING.well.touchAccel
     this.stepCounter++
     const record = (this.stepCounter & 1) === 0 // 60Hz history for echoes
 
@@ -203,7 +194,6 @@ export class Sim {
         const d = Math.sqrt(d2) || 1
         let a = strength / (d2 + softening)
         if (a > maxA) a = maxA
-        a *= envelope
         o.vx += (dx / d) * a * dt
         o.vy += (dy / d) * a * dt
         if (a > touchA) o.touched = true

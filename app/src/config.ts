@@ -37,11 +37,6 @@ export const TUNING = {
     softening: 3600,
     maxAccel: 2400,
     touchAccel: 120,   // above this an object counts as "touched" (deflect bonus)
-    // F1 — the grab: force ramps in with ease-out and decays on release.
-    // The decay doubles as forgiveness: a thumb slip mid-slingshot keeps
-    // pulling for ~120ms. Total attack stays under 100ms so it reads instant.
-    attack: 0.075,     // s to full strength after touch
-    release: 0.12,     // s of decaying pull after lift
     // 31a — the contracting circle (+ 33a dust)
     ringSpawnEvery: 0.53,  // three live, staggered — one is always closing
     ringDuration: 1.6,     // r132 → r56, ease-in
