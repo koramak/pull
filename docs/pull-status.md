@@ -15,15 +15,17 @@ Phases 0–3 of the build program are **implemented, verified, and deployed**
   Actions. All tuning lives in `app/src/config.ts`.
 - **Phase 1 (feel core)** — F1 well attack/release envelope (**REVERTED
   2026-08-01** — the well is binary again, permanent playtest ruling; see the
-  instructions doc addendum), F2 squash/stretch (rocks only — **ore stays
-  rigid**, playtest ruling), F3 tiered hit-stop, F4 trauma shake + roll, F8 flicker floored
+  instructions doc addendum), F2 squash/stretch (**REMOVED 2026-08-01** —
+  sprites are rigid), F3 tiered hit-stop (**REMOVED 2026-08-01** — flat
+  42ms), F4 trauma shake + roll, F8 flicker floored
   (never blinds), S1 speaker-safe audio + ducking, S2 pentatonic streak
   ladders, M2 legible ×2 wager, N1 asteroid PLAY on a live title field,
   N2 reservoir 60→40, N3 ships fixed (2 dmg + knockback + wounded-finisher).
 - **Phase 2 (loop & economy)** — M1 chain/proximity/near-miss scoring,
   M3 asymptotic endless curve + local death telemetry (`loadDeaths()` on
   `?debug`), M4 capacity spill armor (25→15→8→4%), M5 one-section critical
-  state (intensity floor, cold wash, sparks, heartbeat, clutch slow-mo),
+  state (intensity floor, cold wash, sparks, heartbeat; its clutch slow-mo
+  was **REMOVED 2026-08-01**),
   M6 repair-or-greed HULL plate, M8 telegraphed ore veins, N4 post-upgrade
   clear pulse, L1 phosphor trails, L3 steel rocks, L4 readability rebalance,
   P4 PB-in-run. Hotfix: reservoir display resets between runs.
@@ -33,7 +35,8 @@ Phases 0–3 of the build program are **implemented, verified, and deployed**
   ranked), P5 death screen (PD quote gallery in `app/src/quotes.ts` —
   pre-1929 only, keep it that way; named awards; personal medals vs 50-run
   history; tap-to-skip collapse after first death), L5 ghost-finger attract,
-  L6 shareable result, F5 near-miss slow-mo, F6 rolling counter + chip
+  L6 shareable result, F5 near-miss slow-mo (**REMOVED 2026-08-01**),
+  F6 rolling counter + chip
   flights, F7 phosphor burns, F9 station flinch, S3 intensity-driven hum.
 
 A 2026-08-01 evening session was **process-only** (no game code): CLAUDE.md
@@ -61,6 +64,24 @@ A later 2026-08-01 session (live-playtest driven, deployed at `f23774a`):
   clickable live link. New lessons logged: map feedback to the exact draw
   call before cutting; the in-app browser pane suppresses rAF (drive
   `__pull.sim.frame` manually to verify live sims).
+
+Second wave of the same evening (deployed at `5e97a15`), after the playtester
+identified the claude.ai artifact ("PULL — Phosphor Prototype", one version,
+= the phosphor snapshot) as the canonical feel. Verified the artifact-era
+core physics are byte-identical to the app's (well 9.5e6/3600/2400/120,
+dt 1/120, same layout scaling) — the feel gap was the event-driven layers.
+Zane's ruling: remove F2, F3, F5/M5 slow-mo, nothing else:
+
+- **F3 removed** (`ba0ef7d`): flat 0.042s hit-stop on smash + hull, no bank
+  stop, no tiers. Verified live: 58s scripted play, max freeze 0.042.
+- **F5/M5 slow-mo removed** (`5e835cf`): time never bends. Near-miss
+  scoring/flare/whoosh (M1) and the rest of M5's critical state stay.
+- **F2 removed** (`5e97a15`): rigid sprites everywhere; squashT plumbing
+  stripped from pool/sim; station bank gulp (F9) stays.
+
+The touch stack now matches the artifact era end to end: binary well
+(F1 revert), flat 42ms stop, rigid sprites, unbent time, plus the kept
+F10 web-side input fidelity.
 
 ## Parked / not built (deliberate rulings — do not build without Zane)
 

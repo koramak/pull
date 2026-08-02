@@ -29,6 +29,22 @@
   the tuning-vs-wrap ruling.
 - **C2 RESOLVED.** Zane's iPhone check on the live build: ~60fps, smooth.
   No further glow pre-baking needed before tuning.
+- **F2 REMOVED** (later the same day): no procedural deformation — sprites
+  are rigid, rocks included. The station's bank gulp (F9) stays.
+- **F3 REMOVED:** no hit-stop tiers. One flat 0.042s stop on smash and
+  hull hit, none on bank — the artifact-era beat. Death stops 42ms then
+  collapses.
+- **F5 and M5's slow-motion REMOVED:** time never bends — no near-miss
+  slow-mo, no clutch-save slow-mo. Near-miss detection, scoring (M1),
+  flare and whoosh stay; the rest of M5's critical state (heartbeat,
+  sparks, cold wash, intensity floor) stays.
+- Context for the three removals: the claude.ai artifact ("PULL — Phosphor
+  Prototype", single version) is the canonical touch/feel reference. Its
+  core gravity constants were verified identical to the app's
+  (9.5e6 / 3600 / 2400 / 120, dt 1/120, same world scaling), so the feel
+  gap was these event-driven layers, not the force law. With F1 already
+  reverted, the touch stack now matches the artifact era: binary well,
+  flat 42ms stop, rigid sprites, unbent time.
 
 ---
 
