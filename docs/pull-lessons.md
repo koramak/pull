@@ -6,6 +6,21 @@ append it here **immediately** — one bullet, symptom → cause → fix. Don't 
 one-off typos or anything already encoded as a bootstrap rule; do log anything
 a future session would plausibly repeat.
 
+- **2026-08-01 — map playtest feedback to the exact draw call before acting.**
+  Zane's "remove the preview trails" got mapped to L1 motion trails; the real
+  culprit was the first-run tutorial's dashed trajectory guide (firstrun.ts) —
+  a different feature he'd only ever seen because his test profile was fresh.
+  Grep for what literally draws the described visual (setLineDash, the colour,
+  the phase) and state the mapping back before cutting anything. His
+  "state your plan first" checkpoint is what caught it — honor it.
+- **2026-08-01 — the in-app browser pane suppresses requestAnimationFrame.**
+  Game time freezes (t stuck near 0, objs 0) while screenshots still render
+  and the console is clean — it looks exactly like a crashed frame loop but
+  is the pane parking rAF between tool interactions (an independent rAF test
+  loop also never fires). Verify live-sim behavior by driving it manually:
+  `window.__pull.sim.frame(1/60, {active,x,y}, spawning)` in a loop via the
+  pane's JS tool, then assert on time/pool/velocities. On-device checks and
+  cloud Playwright remain the real playtest paths.
 - **2026-08-01 — "cancelled" deploy runs after rapid pushes are normal.** The
   Pages workflow uses a `cancel-in-progress` concurrency group, so a
   superseded commit's run shows `cancelled`, not `failure`. Judge the newest

@@ -13,9 +13,10 @@ Phases 0–3 of the build program are **implemented, verified, and deployed**
 - **Phase 0** — source of truth recovered: `app/` (Vite + TS + Canvas) IS the
   game; `prototype/` is frozen history; every push to `main` deploys via
   Actions. All tuning lives in `app/src/config.ts`.
-- **Phase 1 (feel core)** — F1 well attack/release envelope (+ slip
-  forgiveness), F2 squash/stretch (rocks only — **ore stays rigid**, playtest
-  ruling), F3 tiered hit-stop, F4 trauma shake + roll, F8 flicker floored
+- **Phase 1 (feel core)** — F1 well attack/release envelope (**REVERTED
+  2026-08-01** — the well is binary again, permanent playtest ruling; see the
+  instructions doc addendum), F2 squash/stretch (rocks only — **ore stays
+  rigid**, playtest ruling), F3 tiered hit-stop, F4 trauma shake + roll, F8 flicker floored
   (never blinds), S1 speaker-safe audio + ducking, S2 pentatonic streak
   ladders, M2 legible ×2 wager, N1 asteroid PLAY on a live title field,
   N2 reservoir 60→40, N3 ships fixed (2 dmg + knockback + wounded-finisher).
@@ -41,6 +42,26 @@ state check), `docs/pull-lessons.md` created (mistake→fix log; skim at start,
 append the moment you solve one — Zane's standing rule), this doc's
 dev-workflow section corrected, repo-local git identity set on the Mac.
 
+A later 2026-08-01 session (live-playtest driven, deployed at `f23774a`):
+
+- **F10 web-side landed** (`9b1c85e`): coalesced 120–240Hz pointer path fed
+  into the sim's fixed steps, `desynchronized` canvas hint. Zane ruled KEEP
+  after the F1 revert below. The tap-pulse part of F10 is still unbuilt.
+- **F1 reverted** (`4c6b518`, permanent ruling): the well is binary again —
+  full pull on touch, zero on lift, no slip forgiveness. Pre-review touch is
+  canon. Force constants were never changed by the program (verified).
+- **First-run trajectory guide removed** (`f23774a`): the kit-era dashed
+  line ahead of the tutorial ore. No predictive lines anywhere, ever.
+  Zane's "remove the preview trails" meant THIS — **L1 trails stay** (liked).
+- **Ore rigidity re-verified**: no deformation on ore anywhere; the
+  "squishy ore" report was the tutorial guide.
+- **C2 resolved**: Zane's iPhone check on the live build — ~60fps, smooth.
+  No glow pre-baking needed.
+- New standing rule in CLAUDE.md: every "done" message ends with the
+  clickable live link. New lessons logged: map feedback to the exact draw
+  call before cutting; the in-app browser pane suppresses rAF (drive
+  `__pull.sim.frame` manually to verify live sims).
+
 ## Parked / not built (deliberate rulings — do not build without Zane)
 
 M7 (teach release), all of section 6 (X1–X4: no mercy, no rubber-banding),
@@ -51,24 +72,21 @@ leaderboard if it returns).
 
 ## Next: Phase 4 (native wrap) + open questions for Zane
 
-0. **Awaiting Zane's rulings (asked 2026-08-01):** (a) tuning pass first vs
-   starting Phase 4 wrap — lead recommended tuning first since F10's
-   tap-pulse and the haptics map interact with feel tuning; the F10 web-side
-   parts (coalesced events, desynchronized canvas) are wrap-independent and
-   could land early either way. (b) Install Node on the Mac, or keep build
-   work in cloud sessions? Resolved: `DELETE ME/` stays until Zane deletes
-   it himself.
-1. **C2 on-device check (needs Zane's phone):** open the live game with
-   `?debug`, report the fps number at high object counts. If it dips:
-   pre-bake the remaining live `shadowBlur` glows (score text, core, well
-   rings, floats) the way sprites already bake theirs.
-2. **F10** input plumbing (getCoalescedEvents, desynchronized canvas,
-   sub-50ms tap = gravity pulse) and **S6** real haptics via
-   `@capacitor/haptics` (mapping table in the build instructions §S6) —
+0. **Awaiting Zane's rulings:** (a) tuning pass first vs starting Phase 4
+   wrap — lead still recommends tuning first; the wrap-independent F10 parts
+   are now done, so what's left of F10 (sub-50ms tap = gravity pulse) and
+   the S6 haptics map are both wrap-time and both interact with feel tuning.
+   (b) Install Node on the Mac, or keep build work in cloud sessions?
+   Resolved earlier: `DELETE ME/` stays until Zane deletes it himself.
+   Resolved 2026-08-01: C2 (iPhone ~60fps, smooth — no pre-baking needed);
+   F10 web-side kept after the F1 revert.
+1. **F10 remainder** (sub-50ms tap = gravity pulse) and **S6** real haptics
+   via `@capacitor/haptics` (mapping table in the build instructions §S6) —
    wrap-time work. Capacitor config exists (`app/capacitor.config.json`).
-3. **Tuning feel checks:** first choice lands ~45-50s (target 35-45;
+2. **Tuning feel checks:** first choice lands ~45-50s (target 35-45;
    `reservoir.baseCapacity` is the knob), ship damage/knockback (2/90),
-   chain window/cap, vein cadence. All in `config.ts`.
+   chain window/cap, vein cadence. All in `config.ts`. Re-check feel timings
+   after the F1 revert — the grab now lands full-strength instantly.
 
 ## Dev workflow
 

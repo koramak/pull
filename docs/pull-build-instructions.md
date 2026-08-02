@@ -6,6 +6,32 @@
 
 ---
 
+## ADDENDUM — 2026-08-01 playtest rulings (these override the sections below)
+
+- **F1 REVERTED.** The well envelope (attack ramp, release decay, slip
+  forgiveness) shipped in Phase 1 and was reverted after play: the
+  pre-review binary feel — full pull the frame you touch, zero the frame
+  you lift — is canon. Do not reintroduce ramps, decay, or forgiveness
+  on the well. Force constants were never changed and stay as they are.
+- **First-run trajectory guide REMOVED.** The kit-era dashed line ahead of
+  the tutorial ore (bending under the pull to preview its path) is gone.
+  No predictive/aim lines anywhere in the game, tutorial included. The
+  tutorial's three beats and fingertip hint stay.
+- **L1 trails STAY.** Zane initially asked to remove "preview trails";
+  on inspection he meant the tutorial guide above. The L1 motion trails
+  are liked and remain.
+- **Ore is fully rigid — verified.** No deformation of any kind on ore
+  (the Phase-1 ruling held; the "squishy floating ore" report traced to
+  the tutorial guide, not to ore rendering).
+- **F10 web-side LANDED and KEPT** (coalesced pointer path, desynchronized
+  canvas). Ruled kept after the F1 revert — it changes tracking fidelity,
+  not forces. The sub-50ms tap-pulse part of F10 remains unbuilt, pending
+  the tuning-vs-wrap ruling.
+- **C2 RESOLVED.** Zane's iPhone check on the live build: ~60fps, smooth.
+  No further glow pre-baking needed before tuning.
+
+---
+
 ## 0. BLOCKING TASK — Source of truth (report item C1)
 
 Nothing else in this document should be built until this is resolved.
@@ -52,7 +78,7 @@ Do not develop features directly in the minified bundle under any circumstances.
 
 ## 1. FEEL — all approved
 
-**F1. Well attack/release envelope.** Replace binary on/off well force. Ramp strength in over
+**F1. Well attack/release envelope.** ⚠ REVERTED 2026-08-01 — see Addendum; the well is binary again, permanently. Original ruling kept for history: Replace binary on/off well force. Ramp strength in over
 60–90ms with ease-out, decay over ~120ms after release. The decay doubles as input forgiveness
 so a thumb slip mid-slingshot does not drop the curve. Keep total ramp under 100ms so it still
 reads as instant.

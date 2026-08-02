@@ -41,6 +41,10 @@ Before doing anything else:
 
 Standing rules:
 
+- **End every "done" message with the clickable live link** so Zane can test
+  immediately: https://koramak.github.io/pull/ (add `?debug` for the fps HUD).
+  Every time, no exceptions — Zane's rule, 2026-08-01.
+
 - **One session owns this repo at a time** (Zane's rule after a three-session
   collision). If another session may be active, ask Zane before writing.
 - Parked items (M7, X1–X4, P3, P6, P7, L2, daily seed) are not to be built
