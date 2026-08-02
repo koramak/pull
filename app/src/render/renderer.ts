@@ -371,43 +371,21 @@ export class Renderer {
       ctx.globalAlpha = 1
     }
 
-    // objects — F2: stretch along velocity (area-conserving), squash on
-    // contact, and an idle shimmer on ore so the eye finds the reward
-    const F = TUNING.feel
+    // objects — rigid sprites (F2 deformation removed by playtest ruling)
     for (let i = 0; i < sim.pool.count; i++) {
       const o = sim.pool.objs[i]
       const sprite = this.sprites.lit.get(o.kind)
       if (!sprite) continue
       const rx = o.px + (o.x - o.px) * sim.alpha
       const ry = o.py + (o.y - o.py) * sim.alpha
-
-      // Ore stays rigid — it's a jewel, not a body. Deformation is for rocks.
-      let axis = 0
-      let sAlong = 1
-      let sCross = 1
-      if (o.kind !== ORE) {
-        const speed = Math.hypot(o.vx, o.vy)
-        if (speed > 40) {
-          const e = Math.min(F.stretchMax, F.stretchK * (speed / F.stretchRefSpeed))
-          axis = Math.atan2(o.vy, o.vx)
-          sAlong = 1 + e
-          sCross = 1 / (1 + e)
-        }
-        if (o.squashT > 0) {
-          const q = Math.max(0, Math.min(1, o.squashT / F.squashDur))
-          const s = Math.sin(q * Math.PI) * F.squashAmt
-          sAlong *= 1 - s
-          sCross *= 1 - s * 0.4
-        }
-      }
       const base = o.r / sprite.nominal
 
       ctx.globalAlpha = fieldAlpha
-      this.blitSprite(ctx, sprite, rx, ry, o.rot, base, axis, sAlong, sCross)
+      this.blitSprite(ctx, sprite, rx, ry, o.rot, base)
       if (o.hitFlash > 0) {
         ctx.globalCompositeOperation = 'lighter'
         ctx.globalAlpha = fieldAlpha * (o.hitFlash / TUNING.ships.hitFlash) * 0.8
-        this.blitSprite(ctx, sprite, rx, ry, o.rot, base, axis, sAlong, sCross)
+        this.blitSprite(ctx, sprite, rx, ry, o.rot, base)
         ctx.globalCompositeOperation = 'source-over'
       }
     }
@@ -479,19 +457,11 @@ export class Renderer {
   private blitSprite(
     ctx: CanvasRenderingContext2D,
     s: { canvas: HTMLCanvasElement; half: number; nominal: number },
-    x: number, y: number, rot: number, scale: number,
-    axis = 0, sAlong = 1, sCross = 1
+    x: number, y: number, rot: number, scale: number
   ): void {
     ctx.save()
     ctx.translate(x, y)
-    if (sAlong !== 1 || sCross !== 1) {
-      // deformation lives in the velocity frame; the sprite spins inside it
-      ctx.rotate(axis)
-      ctx.scale(sAlong, sCross)
-      ctx.rotate(rot - axis)
-    } else {
-      ctx.rotate(rot)
-    }
+    ctx.rotate(rot)
     if (scale !== 1) ctx.scale(scale, scale)
     ctx.drawImage(s.canvas, -s.half, -s.half, s.half * 2, s.half * 2)
     ctx.restore()

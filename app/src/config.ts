@@ -134,16 +134,10 @@ export const TUNING = {
     riskMult: 2           // smashes/deflections inside the ring pay double
   },
 
-  // F2 — deformation derived from the sim. Rocks stretch along velocity
-  // (area-conserving) and squash on soft contact. Ore never deforms — it's
-  // a jewel, not a body (playtest ruling).
+  // Sprites are rigid — F2 deformation removed by playtest ruling. Only the
+  // station's bank gulp survives from the feel group.
   feel: {
-    stretchK: 0.16,        // stretch fraction at the reference speed
-    stretchRefSpeed: 620,  // px/s of "full" stretch
-    stretchMax: 0.24,      // hard cap on the deformation
-    squashDur: 0.1,        // s of impact squash after a soft bounce
-    squashAmt: 0.2,
-    gulpDur: 0.18,         // station core "gulp" on a bank
+    gulpDur: 0.18,         // station core "gulp" on a bank (F9 — stays)
     gulpAmt: 0.12
   },
 

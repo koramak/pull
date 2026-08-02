@@ -191,7 +191,6 @@ export class Sim {
       o.y += o.vy * dt
       o.rot += o.rs * dt
       if (o.hitFlash > 0) o.hitFlash -= dt
-      if (o.squashT > 0) o.squashT -= dt
       if (record) pushHistory(o)
     }
 
@@ -291,9 +290,6 @@ export class Sim {
       b.y += ny * overlap
       const tvx = a.vx; a.vx = b.vx; b.vx = tvx
       const tvy = a.vy; a.vy = b.vy; b.vy = tvy
-      // F2 — contact reads as material: both parties squash for a beat
-      a.squashT = TUNING.feel.squashDur
-      b.squashT = TUNING.feel.squashDur
     }
   }
 
@@ -414,7 +410,6 @@ export class Sim {
         const kd = Math.hypot(kdx, kdy) || 1
         target.vx += (kdx / kd) * S.knockback
         target.vy += (kdy / kd) * S.knockback
-        target.squashT = TUNING.feel.squashDur
         ship.cooldown = S.reload
         ship.tracerT = S.tracerDuration
         ship.tx = target.x
