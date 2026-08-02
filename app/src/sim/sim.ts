@@ -51,9 +51,6 @@ export class Sim {
   freezeT = 0
   /** True while one section from death — full-alarm flag layered on RUN. */
   hullCritical = false
-  /** F5/M5 — remaining slow-motion (real seconds) and its time scale. */
-  slowmoT = 0
-  slowmoScale = 1
 
   private accumulator = 0
   private stepCounter = 0
@@ -91,8 +88,6 @@ export class Sim {
     this.stepCounter = 0
     this.freezeT = 0
     this.hullCritical = false
-    this.slowmoT = 0
-    this.slowmoScale = 1
     this.chainN = 0
     this.lastSmashAt = -1e9
     this.veinTimer = TUNING.vein.firstAt
@@ -118,12 +113,6 @@ export class Sim {
     // frame ends up frozen: the world can stop, the finger never does (F3),
     // and a stale path must not replay after the thaw.
     const path = pointer.path && pointer.path.length > 0 ? pointer.path.splice(0) : null
-    // F5/M5 — the slow-motion beat: the world runs slow for a moment, the
-    // finger stays live. Consumed in real seconds, applied to sim seconds.
-    if (this.slowmoT > 0) {
-      this.slowmoT -= scaledDt
-      scaledDt *= this.slowmoScale
-    }
     if (this.freezeT > 0) {
       this.freezeT -= scaledDt
       if (this.freezeT > 0) return
@@ -522,8 +511,7 @@ export class Sim {
       }
 
       // 13d — near-miss: flare on the side the rock passed, gap in pixels.
-      // M1 — it pays now; M5 — at one section a save this close earns a
-      // slow-motion beat (no text — the time itself carries it).
+      // M1 — it pays now.
       if (isRock(o.kind) && o.touched && !o.missCredited) {
         const gap = d - sr - o.r
         if (gap < o.minGap) o.minGap = gap
@@ -531,15 +519,6 @@ export class Sim {
         if (receding && o.minGap < NM.maxGap && o.minGap > 0 && Math.hypot(o.vx, o.vy) > NM.minApproachSpeed) {
           o.missCredited = true
           game.score += TUNING.score.nearMiss
-          // F5 — time is a feel currency: every close call bends it a little,
-          // and a clutch save at one section bends it hard (M5)
-          if (this.hullCritical) {
-            this.slowmoT = TUNING.critical.clutchSlowmo
-            this.slowmoScale = TUNING.critical.clutchScale
-          } else if (this.slowmoT <= 0) {
-            this.slowmoT = NM.slowmoDur
-            this.slowmoScale = NM.slowmoScale
-          }
           emit('nearMiss', { x: o.x, y: o.y, gap: Math.round(o.minGap), angle: Math.atan2(dy, dx) })
         }
       }

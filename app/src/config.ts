@@ -68,11 +68,7 @@ export const TUNING = {
     maxGap: 64,           // surface gap (px) that counts as a genuine near miss
     minApproachSpeed: 120,
     flareDuration: 0.5,
-    cooldown: 0.45,
-    // F5 — every close call bends time a little (the clutch version at one
-    // section is critical.clutchSlowmo/Scale)
-    slowmoDur: 0.18,
-    slowmoScale: 0.85
+    cooldown: 0.45
   },
 
   difficulty: {
@@ -259,15 +255,13 @@ export const TUNING = {
   },
 
   // M5 — the last hull point is a state, not a number. No text, no red,
-  // no darkening: a cold wash, sparks off the ring, the heartbeat (audio),
-  // and a slow-motion beat when a clutch deflection saves you.
+  // no darkening: a cold wash, sparks off the ring, the heartbeat (audio).
+  // (The clutch slow-motion beat was removed by playtest ruling with F5.)
   critical: {
     coldWashAlpha: 0.05,  // full-screen cool tint while at one section
     sparksPerSec: 1.7,
     sparkLife: 0.22,
-    heartbeatPeriod: 1.15,
-    clutchSlowmo: 0.3,    // s of slow motion on a near-miss at one section
-    clutchScale: 0.4      // sim time multiplier during the beat
+    heartbeatPeriod: 1.15
   },
 
   // M8 — the ore vein: telegraphed abundance. Announced, then delivered.
