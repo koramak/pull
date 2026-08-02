@@ -61,7 +61,9 @@ export class Renderer {
   private scoreShown = 0
 
   constructor(private canvas: HTMLCanvasElement) {
-    this.ctx = canvas.getContext('2d')!
+    // F10 — desynchronized lets the compositor present without waiting a
+    // frame where supported (Chrome/Android); elsewhere it's an ignored hint.
+    this.ctx = canvas.getContext('2d', { desynchronized: true })!
     this.fieldCanvas = document.createElement('canvas')
     this.fieldCtx = this.fieldCanvas.getContext('2d')!
     this.crtEl = document.getElementById('crt')

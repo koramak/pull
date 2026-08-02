@@ -113,6 +113,14 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
     e.preventDefault()
     const p = toWorld(e)
     if (pointer.active) {
+      // F10 — browsers deliver one pointermove per frame and coalesce the
+      // 120–240Hz touch samples behind it; hand the sim the whole path.
+      const coalesced = e.getCoalescedEvents ? e.getCoalescedEvents() : null
+      if (coalesced && coalesced.length > 1) {
+        const path = pointer.path ?? (pointer.path = [])
+        for (const c of coalesced) path.push(toWorld(c))
+        if (path.length > 64) path.splice(0, path.length - 64) // sim stalled; stay bounded
+      }
       pointer.x = p.x
       pointer.y = p.y
     }

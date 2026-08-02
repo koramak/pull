@@ -21,6 +21,9 @@ export interface PointerState {
   active: boolean
   x: number // world units
   y: number
+  /** F10 — coalesced sub-frame samples (world units, oldest first). Input
+   *  pushes, the sim drains once per frame; x/y above stay the newest. */
+  path?: { x: number; y: number }[]
 }
 
 const FRAG_OF: Record<number, { kind: number; n: number } | null> = {
@@ -56,6 +59,8 @@ export class Sim {
 
   private accumulator = 0
   private stepCounter = 0
+  /** F10 — scratch pointer handed to step(); walks the coalesced path. */
+  private stepPointer: PointerState = { active: false, x: 0, y: 0 }
   private diff: DifficultySample = { spawnInterval: 1.7, speedBonus: 0, oreChance: 0.32, monolithChance: 0.1 }
   // M1 — smash chain bookkeeping (game.time based)
   private chainN = 0
@@ -112,6 +117,10 @@ export class Sim {
   }
 
   frame(scaledDt: number, pointer: PointerState, spawning: boolean): void {
+    // F10 — take this frame's coalesced finger path. Drained even when the
+    // frame ends up frozen: the world can stop, the finger never does (F3),
+    // and a stale path must not replay after the thaw.
+    const path = pointer.path && pointer.path.length > 0 ? pointer.path.splice(0) : null
     // F5/M5 — the slow-motion beat: the world runs slow for a moment, the
     // finger stays live. Consumed in real seconds, applied to sim seconds.
     if (this.slowmoT > 0) {
@@ -127,9 +136,23 @@ export class Sim {
     }
     const dt = TUNING.sim.dt
     this.accumulator += Math.min(scaledDt, TUNING.sim.maxFrameDt)
+    const planned = Math.min(Math.floor(this.accumulator / dt), TUNING.sim.maxStepsPerFrame)
     let steps = 0
     while (this.accumulator >= dt && steps < TUNING.sim.maxStepsPerFrame) {
-      this.step(dt, pointer, spawning)
+      // F10 — each step reads the sample nearest its slice of the frame, so
+      // a fast swipe pulls along its true arc instead of one chord per frame.
+      const sp = this.stepPointer
+      sp.active = pointer.active
+      if (path && planned > 0) {
+        const idx = Math.floor(((steps + 1) * path.length) / planned) - 1
+        const s = path[idx < 0 ? 0 : idx]
+        sp.x = s.x
+        sp.y = s.y
+      } else {
+        sp.x = pointer.x
+        sp.y = pointer.y
+      }
+      this.step(dt, sp, spawning)
       this.accumulator -= dt
       steps++
       if (this.freezeT > 0) { this.accumulator = 0; break }
