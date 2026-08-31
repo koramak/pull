@@ -1,6 +1,6 @@
 # PULL — Project Status (handoff)
 
-**Updated:** 2026-08-01 · **Live build:** https://koramak.github.io/pull/
+**Updated:** 2026-08-30 · **Live build:** https://koramak.github.io/pull/
 **Read this + `pull-build-instructions.md` before doing anything.** The
 instructions doc holds Zane's rulings (approvals/rejections per item ID);
 where it and the improvement report disagree, the instructions win.
@@ -83,31 +83,58 @@ The touch stack now matches the artifact era end to end: binary well
 (F1 revert), flat 42ms stop, rigid sprites, unbent time, plus the kept
 F10 web-side input fidelity.
 
+**2026-08-30 session — the upgrade rebuild** (deployed at `95a9047`; full
+rulings in the instructions doc's 2026-08-30 addendum). Zane's direction:
+the feel of this build is right, so upgrades get laser-focused:
+
+- **Preserved the pre-change build first**: playable archive committed at
+  `prototype/archive-2026-08-30/` (self-contained mirror of the live
+  deploy, kept live at
+  https://koramak.github.io/pull/prototype/archive-2026-08-30/ by every
+  future deploy) and source tagged `pre-shield-2026-08-30`.
+- **SHIPS → SHIELD** (`6c5d12d`/`95a9047`): a phosphor ring at r54 that
+  eats one hit from any split-born piece (objects tagged `frag` at
+  fragment time — mediums off a monolith, shards, chips, rubble shards);
+  whole asteroids and ore pass through, and outbound shrapnel never wastes
+  the charge. Recharges clockwise from 12 over 10s / 6s / 3.5s by level;
+  at L3 every block pays +1 reservoir unit (Zane's explicit spec). The
+  whole ship system is deleted. `config.ts → shield` holds the numbers.
+- **CAPACITY → REPAIR**: repair-or-greed is its own plate now — REPAIR
+  relights the first dead section, enabled only while one is dead; HULL is
+  pure growth (3→6) again. Reservoir cap is a flat 40 (constant upgrade
+  cost), spill a flat 25% (`reservoir.spillFrac`).
+- Verified on the live deploy by driving `__pull.sim.frame` in the in-app
+  browser: block/cooldown/recharge at L1 and L3, gold at L3, whole rocks
+  passing, REPAIR gating and relight, outbound charge retention. (Note:
+  in the hidden pane `sim.width` is 0 until you call `sim.resize(393,852)`
+  — objects cull instantly otherwise.)
+
 ## Parked / not built (deliberate rulings — do not build without Zane)
 
 M7 (teach release), all of section 6 (X1–X4: no mercy, no rubber-banding),
-M9 ship-cap change (revisit now that N3 works), P3 cosmetics, P6 stats page,
+P3 cosmetics, P6 stats page,
 P7 A2HS prompting, L2 spawn telegraphs (accepted risk: unattributable
 thumb deaths — watch the telemetry), daily seeded run (needs its own
-leaderboard if it returns).
+leaderboard if it returns). M9/N3 are moot as of 2026-08-30 (ships no
+longer exist).
 
-## Next: Phase 4 (native wrap) + open questions for Zane
+## Next: playtest the new triangle + open questions for Zane
 
-0. **Awaiting Zane's rulings:** (a) tuning pass first vs starting Phase 4
-   wrap — lead still recommends tuning first; the wrap-independent F10 parts
-   are now done, so what's left of F10 (sub-50ms tap = gravity pulse) and
-   the S6 haptics map are both wrap-time and both interact with feel tuning.
-   (b) Install Node on the Mac, or keep build work in cloud sessions?
-   Resolved earlier: `DELETE ME/` stays until Zane deletes it himself.
-   Resolved 2026-08-01: C2 (iPhone ~60fps, smooth — no pre-baking needed);
-   F10 web-side kept after the F1 revert.
-1. **F10 remainder** (sub-50ms tap = gravity pulse) and **S6** real haptics
-   via `@capacitor/haptics` (mapping table in the build instructions §S6) —
-   wrap-time work. Capacitor config exists (`app/capacitor.config.json`).
+0. **Awaiting Zane's playtest of the 2026-08-30 upgrade rebuild** —
+   the pre-change build sits at the archive URL for A/B feel comparison.
+   Likely tuning knobs after play (all in `config.ts → shield`):
+   recharge 10/6/3.5, gold-per-block 1, ring radius 54. Also open: with
+   capacity gone every upgrade costs a flat 40 — if late-game choices
+   arrive too fast, the cost curve is the knob.
+1. **Standing open questions:** (a) tuning pass vs Phase 4 wrap (F10
+   sub-50ms tap-pulse and the S6 haptics map are both wrap-time);
+   (b) install Node on the Mac, or keep build work in cloud sessions?
+   Resolved earlier: `DELETE ME/` stays until Zane deletes it himself;
+   C2 resolved (iPhone ~60fps); F10 web-side kept.
 2. **Tuning feel checks:** first choice lands ~45-50s (target 35-45;
-   `reservoir.baseCapacity` is the knob), ship damage/knockback (2/90),
-   chain window/cap, vein cadence. All in `config.ts`. Re-check feel timings
-   after the F1 revert — the grab now lands full-strength instantly.
+   `reservoir.baseCapacity` is the knob), chain window/cap, vein cadence.
+   Re-check feel timings after the F1 revert — the grab lands
+   full-strength instantly.
 
 ## Dev workflow
 

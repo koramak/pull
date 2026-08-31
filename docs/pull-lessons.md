@@ -6,6 +6,13 @@ append it here **immediately** — one bullet, symptom → cause → fix. Don't 
 one-off typos or anything already encoded as a bootstrap rule; do log anything
 a future session would plausibly repeat.
 
+- **2026-08-30 — in the in-app pane, `sim.width` can be 0: resize before
+  driving frames.** Hand-spawned objects vanished within a frame while
+  probing live logic via `__pull.sim.frame` — the hidden pane's canvas never
+  got real dimensions, so world size was 0×0 and everything offscreen-culled
+  instantly (margin 90 from a zero-width world). Call
+  `__pull.sim.resize(393, 852)` (the kit stage) before manual sim tests,
+  and treat "objects disappear immediately" as a zero-size world, not a bug.
 - **2026-08-01 — map playtest feedback to the exact draw call before acting.**
   Zane's "remove the preview trails" got mapped to L1 motion trails; the real
   culprit was the first-run tutorial's dashed trajectory guide (firstrun.ts) —
