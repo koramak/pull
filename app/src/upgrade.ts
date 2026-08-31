@@ -1,7 +1,7 @@
 // The upgrade moment — full, frozen, swiped, spent (kit "UPGRADE — CHOSEN,
 // COMBINED"). Reservoir full + finger released → everything freezes to 16%,
-// three circular plates in a triangle (HULL top, SHIPS bottom-left,
-// CAPACITY bottom-right — each previewing the parts it welds on), flick
+// three circular plates in a triangle (HULL top, SHIELD bottom-left,
+// REPAIR bottom-right — each previewing the parts it welds on), flick
 // toward one, white lock flash, then the surge: warm light collapsing
 // inward — the only inward motion in the game — before structure appears.
 // The run resumes 480ms after the flick; surge and build play over live play.
@@ -20,7 +20,7 @@ export interface PlateInfo {
   enabled: boolean
 }
 
-const TRACK_ORDER: Track[] = ['hull', 'ships', 'capacity']
+const TRACK_ORDER: Track[] = ['hull', 'shield', 'repair']
 
 class UpgradeController {
   stage: Stage = 'idle'

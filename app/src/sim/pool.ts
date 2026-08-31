@@ -25,12 +25,13 @@ export interface GameObject {
   rot: number
   rs: number
   kind: number
-  hp: number       // ship shots left to break
+  hp: number       // durability (idle since SHIPS became SHIELD; rock data)
   touched: boolean // meaningfully accelerated by the well (deflect bonus)
   dead: boolean
   seed: number
-  hitFlash: number // s of full-outline flash after a ship shot
-  wounded: boolean // a ship has tagged it — ships finish what they start (N3)
+  hitFlash: number // s of full-outline flash (idle; kept for future use)
+  /** Born from a split — a "broken piece". The shield only blocks these. */
+  frag: boolean
   // near-miss bookkeeping
   minGap: number
   lastDist: number
@@ -45,7 +46,7 @@ function makeObject(): GameObject {
   return {
     x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0,
     r: 10, rot: 0, rs: 0, kind: MEDIUM, hp: 1,
-    touched: false, dead: false, seed: 0, hitFlash: 0, wounded: false,
+    touched: false, dead: false, seed: 0, hitFlash: 0, frag: false,
     minGap: 1e9, lastDist: 1e9, missCredited: false,
     hist: new Float32Array(HISTORY_CAP * 3),
     histHead: 0, histLen: 0
@@ -68,7 +69,7 @@ export class ObjectPool {
     o.dead = false
     o.hp = 1
     o.hitFlash = 0
-    o.wounded = false
+    o.frag = false
     o.minGap = 1e9
     o.lastDist = 1e9
     o.missCredited = false

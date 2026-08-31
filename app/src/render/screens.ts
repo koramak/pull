@@ -508,8 +508,8 @@ function drawTrackedLeft(ctx: CanvasRenderingContext2D, text: string, x: number,
 
 const TRACK_LABEL: Record<Track, string> = {
   hull: 'HULL',
-  ships: 'SHIPS',
-  capacity: 'CAPACITY'
+  shield: 'SHIELD',
+  repair: 'REPAIR'
 }
 
 export function drawChoice(ctx: CanvasRenderingContext2D, st: Station, l: Layout): void {
@@ -631,6 +631,27 @@ function drawPlatePreview(ctx: CanvasRenderingContext2D, track: Track, st: Stati
       ctx.stroke()
       ctx.shadowBlur = 0
     }
+  } else if (track === 'repair') {
+    // your actual hull, wound included — the first dead section relights warm
+    const relight = st.firstDead()
+    for (let i = 0; i < n; i++) {
+      const b0 = -Math.PI / 2 + (i / n) * TAU
+      const b1 = -Math.PI / 2 + ((i + 1) / n) * TAU
+      const isFix = i === relight
+      const alive = !st.dead[i] || isFix
+      ctx.strokeStyle = isFix && gold
+        ? PAL.ore
+        : alive ? rgba(PAL.station, 0.55) : rgba(PAL.station, 0.16)
+      ctx.lineWidth = isFix ? 1.8 : 1.6
+      if (isFix && gold) {
+        ctx.shadowColor = 'rgba(255,226,63,0.85)'
+        ctx.shadowBlur = 6
+      }
+      ctx.beginPath()
+      ctx.arc(0, 0, 24, b0 + gapHalf, b1 - gapHalf)
+      ctx.stroke()
+      ctx.shadowBlur = 0
+    }
   } else {
     ctx.strokeStyle = rgba(PAL.station, 0.55)
     ctx.lineWidth = 1.6
@@ -646,49 +667,17 @@ function drawPlatePreview(ctx: CanvasRenderingContext2D, track: Track, st: Stati
   ctx.arc(0, 0, 9, 0, TAU)
   ctx.stroke()
 
-  if (track === 'ships') {
-    ctx.strokeStyle = rgba(PAL.ore, 0.34)
-    ctx.lineWidth = 1
-    ctx.setLineDash([2, 5])
-    ctx.beginPath()
-    ctx.arc(0, 0, 33, 0, TAU)
-    ctx.stroke()
-    ctx.setLineDash([])
+  if (track === 'shield') {
+    // the ring itself, warm on the plate — welded on at r30 around the mini
+    ctx.strokeStyle = gold ? PAL.ore : rgba(PAL.station, 0.4)
+    ctx.lineWidth = 1.6
     if (gold) {
-      ctx.save()
-      ctx.translate(23.3, -23.3)
-      ctx.rotate((135 * Math.PI) / 180)
-      ctx.scale(1.5, 1.5)
-      ctx.fillStyle = 'rgba(255,226,63,0.16)'
-      ctx.strokeStyle = PAL.ore
-      ctx.lineWidth = 1.2
       ctx.shadowColor = 'rgba(255,226,63,0.85)'
       ctx.shadowBlur = 6
-      ctx.beginPath()
-      ctx.moveTo(0, -4.1)
-      ctx.lineTo(2.9, 3.4)
-      ctx.lineTo(0, 1.7)
-      ctx.lineTo(-2.9, 3.4)
-      ctx.closePath()
-      ctx.fill()
-      ctx.stroke()
-      ctx.restore()
     }
-  } else if (track === 'capacity' && gold) {
-    ctx.strokeStyle = PAL.ore
-    ctx.lineWidth = 1.8
-    ctx.shadowColor = 'rgba(255,226,63,0.85)'
-    ctx.shadowBlur = 6
     ctx.beginPath()
-    ctx.arc(0, 0, 18.7, 0, TAU)
+    ctx.arc(0, 0, 30, 0, TAU)
     ctx.stroke()
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * TAU - Math.PI / 2
-      ctx.beginPath()
-      ctx.moveTo(Math.cos(a) * 18.7, Math.sin(a) * 18.7)
-      ctx.lineTo(Math.cos(a) * 24, Math.sin(a) * 24)
-      ctx.stroke()
-    }
     ctx.shadowBlur = 0
   }
   ctx.restore()

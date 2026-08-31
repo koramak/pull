@@ -166,27 +166,3 @@ export class SpriteSet {
     return { canvas: c, half, nominal: spec.r }
   }
 }
-
-/** Draw the ship dart (live stroke — three at most, and it must stay crisp). */
-export function drawDart(g: CanvasRenderingContext2D, x: number, y: number, angle: number, glow: boolean, scale = 1): void {
-  g.save()
-  g.translate(x, y)
-  g.rotate(angle)
-  if (scale !== 1) g.scale(scale, scale)
-  g.strokeStyle = PAL.ship
-  g.lineWidth = 1
-  g.lineJoin = 'round'
-  if (glow) {
-    g.shadowColor = 'rgba(234,252,255,0.9)'
-    g.shadowBlur = 4
-  }
-  g.beginPath()
-  g.moveTo(0, -4.1)
-  g.lineTo(2.9, 3.4)
-  g.lineTo(0, 1.7)
-  g.lineTo(-2.9, 3.4)
-  g.closePath()
-  g.stroke()
-  g.shadowBlur = 0
-  g.restore()
-}

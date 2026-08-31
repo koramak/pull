@@ -1,11 +1,11 @@
-// The station, drawn. Structure (section arcs, boundary flares, capacity
-// rails + cross-ties, the stage-4 tooth comb) renders into an offscreen
-// buffer and re-bakes only when the build changes — it is blitted every
-// other frame. The core (reservoir, pulse, bank flash) is a handful of live
-// strokes. Collision is r44 at every stage; everything here is drawing.
+// The station, drawn. Structure (section arcs, boundary flares, the stage-4
+// tooth comb) renders into an offscreen buffer and re-bakes only when the
+// build changes — it is blitted every other frame. The core (reservoir,
+// pulse, bank flash) is a handful of live strokes; the shield ring is drawn
+// live by the renderer (its charge state changes every frame). Collision is
+// r44 at every stage; everything here is drawing.
 
 import { TUNING } from '../config'
-import { SeededRNG } from '../rng'
 import type { Station } from '../sim/station'
 import { PAL, rgba } from './palette'
 
@@ -151,35 +151,6 @@ export class StationDraw {
     const n = st.sections
     const gapHalf = (TUNING.station.boundaryGapDeg / 2) * (Math.PI / 180)
     const R = S.radius
-
-    // capacity — inner rails + cross-ties, everything inside the hull
-    if (st.capacity > 0) {
-      const rails = [33, 26.5, 21.5]
-      const ties = [24, 16, 10]
-      const outer = [44, 32, 26]
-      const rng = new SeededRNG(0xA11CE)
-      g.strokeStyle = rgba(PAL.station, 0.7)
-      for (let lvl = 0; lvl < st.capacity && lvl < 3; lvl++) {
-        const r = rails[lvl]
-        g.lineWidth = 1
-        g.globalAlpha = 0.7
-        g.beginPath()
-        g.arc(0, 0, r, 0, TAU)
-        g.stroke()
-        g.lineWidth = 0.7
-        g.globalAlpha = 0.56
-        const count = ties[lvl]
-        for (let i = 0; i < count; i++) {
-          const a = (i / count) * TAU + lvl * 0.21
-          const rOut = Math.min(outer[lvl], r + 4 + rng.next() * (outer[lvl] - r - 3))
-          g.beginPath()
-          g.moveTo(Math.cos(a) * r, Math.sin(a) * r)
-          g.lineTo(Math.cos(a) * rOut, Math.sin(a) * rOut)
-          g.stroke()
-        }
-      }
-      g.globalAlpha = 1
-    }
 
     // stage-4 payoff — the tooth comb, once three upgrades are in
     if (st.totalUpgrades() >= 3) {

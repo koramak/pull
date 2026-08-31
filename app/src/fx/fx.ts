@@ -1,7 +1,7 @@
 // Juice orchestrator — subscribes to sim events and keeps small pooled
 // stores of transient visuals for the renderer: shock rings (the smash),
 // hull-hit flicker/tear clocks, ore-spill chips, near-miss flares, gain
-// floats, ship tracers live on the ships themselves. Runs on real frame time.
+// floats, shield block flashes. Runs on real frame time.
 //
 // F4 — screen shake is a trauma system: events add trauma 0..1, amplitude is
 // trauma², and the offsets come from smooth coherent noise (plus a little
@@ -86,6 +86,10 @@ export const fx = {
   lastBankAt: -1e9,
   /** F7 — phosphor burns where big smashes happened. */
   burns: [] as Array<{ x: number; y: number; r: number; t: number }>,
+  /** Shield block flashes — bright arcs on the ring where pieces died. */
+  shieldBlocks: [] as Array<{ angle: number; t: number; gold: number }>,
+  /** Shield re-arm brighten clock (-1 idle). */
+  shieldReadyT: -1,
   /** F9 — station flinch offset (unit direction + clock; null idle). */
   flinch: null as { dx: number; dy: number; t: number } | null,
   /** P1 — one-slot banner over the field (missions, ranks). */
@@ -168,6 +172,18 @@ export function initFx(): void {
     fx.clearT = 0
   })
 
+  on('shieldBlock', e => {
+    fx.shieldBlocks.push({ angle: e.angle, t: 0, gold: e.gold })
+    if (fx.shieldBlocks.length > 4) fx.shieldBlocks.shift()
+    // registers like a bank, not a hit — the save is a good moment
+    addTrauma(TUNING.trauma.shieldBlock)
+    if (e.gold > 0) spawnFloat(e.x, e.y - 20, `+${e.gold} ORE`, PAL.ore, false)
+  })
+
+  on('shieldReady', () => {
+    fx.shieldReadyT = 0
+  })
+
   on('hullHit', e => {
     // Depth scales with resolution; one section left snaps to full alarm.
     const table = TUNING.hullHit.flicker
@@ -232,6 +248,8 @@ export function clearFx(): void {
   fx.scorePulse = -1
   fx.streak = 0
   fx.burns.length = 0
+  fx.shieldBlocks.length = 0
+  fx.shieldReadyT = -1
   fx.flinch = null
   fx.banner = null
 }
@@ -323,6 +341,14 @@ export function updateFx(dt: number): void {
   for (let i = fx.burns.length - 1; i >= 0; i--) {
     fx.burns[i].t += dt
     if (fx.burns[i].t > TUNING.burns.life) fx.burns.splice(i, 1)
+  }
+  for (let i = fx.shieldBlocks.length - 1; i >= 0; i--) {
+    fx.shieldBlocks[i].t += dt
+    if (fx.shieldBlocks[i].t > TUNING.shield.flashDur) fx.shieldBlocks.splice(i, 1)
+  }
+  if (fx.shieldReadyT >= 0) {
+    fx.shieldReadyT += dt
+    if (fx.shieldReadyT > TUNING.shield.readyFlashDur) fx.shieldReadyT = -1
   }
   if (fx.flinch) {
     fx.flinch.t += dt

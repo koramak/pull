@@ -24,6 +24,7 @@ export function initHaptics(): void {
     else if (e.sectionsBefore === 5) pulse(18)
     else pulse(8)
   })
+  on('shieldBlock', () => pulse(12))
   on('choiceLock', () => pulse(10))
   on('surge', () => pulse(20))
   on('collapse', () => pulse([40, 60, 90]))

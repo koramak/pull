@@ -19,7 +19,7 @@ import { firstRun } from '../firstrun'
 import { readHistory, ORE } from '../sim/pool'
 import type { Sim, PointerState } from '../sim/sim'
 import { PAL, FONT_NUM, FONT_LABEL, rgba } from './palette'
-import { SpriteSet, drawDart } from './sprites'
+import { SpriteSet } from './sprites'
 import { Starfield } from './starfield'
 import { StationDraw } from './stationDraw'
 import { WellFx } from './well'
@@ -266,7 +266,7 @@ export class Renderer {
       flinchY = fx.flinch.dy * TUNING.flinch.px * f * f
     }
 
-    // station (+ its ships) recoil together
+    // station (+ its shield) recoil together
     if (flinchX !== 0 || flinchY !== 0) ctx.translate(flinchX, flinchY)
     if (!hideStation) {
       const sAlpha = fieldAlpha * flicker
@@ -283,26 +283,48 @@ export class Renderer {
       }
     }
 
-    // ships + tracers
-    const newestShip = st.ships.length - 1
-    for (let i = 0; i < (onTitle ? 0 : st.ships.length); i++) {
-      const ship = st.ships[i]
-      let scl = 1
-      if (upgrade.buildTrack === 'ships' && i === newestShip && upgrade.buildT >= 0 && upgrade.buildT < TUNING.choice.build) {
-        const f = upgrade.buildT / TUNING.choice.build
-        scl = f < 0.7 ? 0.35 + (1.16 - 0.35) * (f / 0.7) : 1.16 - 0.16 * ((f - 0.7) / 0.3)
-      }
-      ctx.globalAlpha = fieldAlpha
-      drawDart(ctx, ship.x, ship.y, ship.angle, true, scl)
-      if (ship.tracerT > 0) {
-        ctx.globalAlpha = fieldAlpha * Math.max(0, ship.tracerT / TUNING.ships.tracerDuration)
-        ctx.strokeStyle = PAL.white
-        ctx.lineWidth = 1
+    // the shield — a quiet phosphor circle while armed; while down it
+    // redraws itself clockwise from 12. Block flashes land as bright arcs.
+    if (!onTitle && !hideStation && st.shieldLevel > 0) {
+      const SH = TUNING.shield
+      ctx.save()
+      ctx.lineCap = 'round'
+      if (st.shieldDownT <= 0) {
+        const ready = fx.shieldReadyT >= 0 ? 1 - fx.shieldReadyT / SH.readyFlashDur : 0
+        ctx.globalAlpha = fieldAlpha * (0.34 + 0.45 * ready)
+        ctx.strokeStyle = PAL.station
+        ctx.lineWidth = 1.2 + 0.8 * ready
+        ctx.shadowColor = 'rgba(94,242,214,0.7)'
+        ctx.shadowBlur = (4 + 6 * ready) * (bloom / TUNING.intensity.bloom.from)
         ctx.beginPath()
-        ctx.moveTo(ship.x, ship.y)
-        ctx.lineTo(ship.tx, ship.ty)
+        ctx.arc(st.x, st.y, SH.radius, 0, TAU)
+        ctx.stroke()
+      } else {
+        const f = 1 - st.shieldDownT / st.shieldRechargeTime()
+        if (f > 0.015) {
+          ctx.globalAlpha = fieldAlpha * 0.22
+          ctx.strokeStyle = PAL.station
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.arc(st.x, st.y, SH.radius, -Math.PI / 2, -Math.PI / 2 + TAU * f)
+          ctx.stroke()
+        }
+      }
+      ctx.shadowBlur = 0
+      // the catch, marked where it happened — gold when it paid
+      for (const b of fx.shieldBlocks) {
+        const q = 1 - b.t / SH.flashDur
+        if (q <= 0) continue
+        ctx.globalAlpha = fieldAlpha * q
+        ctx.strokeStyle = b.gold > 0 ? PAL.ore : PAL.station
+        ctx.lineWidth = 2.6
+        ctx.shadowColor = b.gold > 0 ? 'rgba(255,226,63,0.9)' : 'rgba(94,242,214,0.9)'
+        ctx.shadowBlur = 10
+        ctx.beginPath()
+        ctx.arc(st.x, st.y, SH.radius, b.angle - SH.arcHalf, b.angle + SH.arcHalf)
         ctx.stroke()
       }
+      ctx.restore()
     }
     ctx.globalAlpha = 1
     if (flinchX !== 0 || flinchY !== 0) ctx.translate(-flinchX, -flinchY)
@@ -382,12 +404,6 @@ export class Renderer {
 
       ctx.globalAlpha = fieldAlpha
       this.blitSprite(ctx, sprite, rx, ry, o.rot, base)
-      if (o.hitFlash > 0) {
-        ctx.globalCompositeOperation = 'lighter'
-        ctx.globalAlpha = fieldAlpha * (o.hitFlash / TUNING.ships.hitFlash) * 0.8
-        this.blitSprite(ctx, sprite, rx, ry, o.rot, base)
-        ctx.globalCompositeOperation = 'source-over'
-      }
     }
     ctx.globalAlpha = 1
 
@@ -754,15 +770,22 @@ export class Renderer {
       ctx.moveTo(Math.cos(fa) * 44, Math.sin(fa) * 44)
       ctx.lineTo(Math.cos(fa) * (44 + 5 * pop), Math.sin(fa) * (44 + 5 * pop))
       ctx.stroke()
-    } else if (upgrade.buildTrack === 'capacity') {
-      const rails = [33, 26.5, 21.5]
-      const r = rails[Math.min(2, Math.max(0, st.capacity - 1))]
-      ctx.lineWidth = 1.4
+    } else if (upgrade.buildTrack === 'shield') {
+      // the ring snaps out warm, then the live teal shield takes over
+      ctx.lineWidth = 1.6
       ctx.beginPath()
-      ctx.arc(0, 0, r * Math.max(0.5, Math.min(1, pop)), 0, TAU)
+      ctx.arc(0, 0, TUNING.shield.radius * Math.max(0.5, Math.min(1.06, pop)), 0, TAU)
+      ctx.stroke()
+    } else if (upgrade.buildTrack === 'repair' && st.lastRepaired >= 0) {
+      // the relit section flashes warm before cooling into the hull
+      const gapHalf = (TUNING.station.boundaryGapDeg / 2) * (Math.PI / 180)
+      const a0 = st.boundaryAngle(st.lastRepaired) + gapHalf
+      const a1 = st.boundaryAngle(st.lastRepaired + 1) - gapHalf
+      ctx.lineWidth = 2.9 * Math.max(0.5, Math.min(1.1, pop))
+      ctx.beginPath()
+      ctx.arc(0, 0, TUNING.station.radius, a0, a1)
       ctx.stroke()
     }
-    // the ships build pop is applied to the dart itself in drawField
     ctx.restore()
   }
 

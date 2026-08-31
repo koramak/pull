@@ -123,6 +123,22 @@ export const TUNING = {
     gridCell: 72          // ≥ 2×max rock radius
   },
 
+  // The shield — a phosphor ring at r54 that eats one hit from any
+  // split-born piece (mediums off a monolith, shards, chips, rubble shards).
+  // Whole asteroids pass straight through: the shield covers your shrapnel,
+  // not your mistakes. One charge, then it redraws itself over `recharge`
+  // seconds (indexed by level-1). At full level every blocked hit pays a
+  // little gold straight into the reservoir.
+  shield: {
+    radius: 54,           // ring radius — outside the hull flares (r49)
+    recharge: [10, 6, 3.5], // s to re-arm, by level; upgrades buy speed
+    goldPerBlock: 1,      // reservoir units per block, final level only
+    maxLevel: 3,
+    flashDur: 0.35,       // block flash: a bright arc where the piece died
+    arcHalf: 0.55,        // rad half-width of that arc
+    readyFlashDur: 0.4    // full-ring brighten when the shield re-arms
+  },
+
   score: {
     bank: 25,             // ore into the core (×2 while the reservoir is full)
     smash: 10,            // M1 — chains double it: 10 → 20 → 40 → 80
@@ -153,6 +169,7 @@ export const TUNING = {
     maxRoll: 0.05,        // rad at full trauma
     decayPerSec: 1.25,
     bank: 0.08,           // a positive thump, barely there
+    shieldBlock: 0.08,    // the save registers like a bank, not a hit
     smash: 0.12,
     smashNear: 0.2,       // smashes close to the hull hit harder
     smashNearRadius: 170,
@@ -161,13 +178,12 @@ export const TUNING = {
   },
 
   // The reservoir: warm light stored inside the core. Full = upgrade armed.
+  // CAPACITY is gone (2026-08-30 ruling) — the cap never grows, so every
+  // upgrade costs the same 8 banks, and spill is one flat fraction.
   reservoir: {
     unitsPerBank: 5,      // ore units credited per banked ore
-    baseCapacity: 40,     // N2 — 8 banks to the first choice (~35-45s of play)
-    capacityGrowth: 1.5,  // CAPACITY track: ×1.5 per purchase
-    // M4 — capacity buys down spill damage; indexed by capacity purchases.
-    // Gold is only ever banked by hand: there is no passive income, ever.
-    spillByCapacity: [0.25, 0.15, 0.08, 0.04],
+    baseCapacity: 40,     // N2 — 8 banks to a choice (~35-45s of play)
+    spillFrac: 0.25,      // reservoir share lost on a hull hit
     fullPulsePeriod: 1.05 // the only pulsing element in the game
   },
 
@@ -183,26 +199,11 @@ export const TUNING = {
     build: 0.35,          // structure snaps out, 30ms stagger, 16% overshoot
     restore: 0.30,        // field back to full
     plateRadius: 62,      // 124pt circles
-    plateOffsets: [       // triangle: top, bottom-left, bottom-right
+    plateOffsets: [       // triangle: HULL top, SHIELD b-left, REPAIR b-right
       { x: 0,    y: -146 },
       { x: -120, y: 104 },
       { x: 120,  y: 104 }
-    ] as ReadonlyArray<{ x: number; y: number }>,
-    maxCapacity: 3,
-    maxShips: 3
-  },
-
-  // Ships — the only thing on screen that points.
-  ships: {
-    orbitRadius: 61,
-    orbitPeriod: 14,      // slow even sweep
-    range: 270,           // furthest rock a ship will engage
-    reload: 2.0,          // M9 — floor; ships stay scarce
-    damage: 2,            // N3 — a shot breaks a medium outright, monolith in two
-    knockback: 90,        // N3 — px/s shove along the tracer; every shot visibly acts
-    tracerDuration: 0.09, // 1px white tracer, 90ms, no projectile
-    aimLead: 3.2,         // s of look-ahead when testing "collision course"
-    hitFlash: 0.09
+    ] as ReadonlyArray<{ x: number; y: number }>
   },
 
   // Hull hit — the tube reports damage. Depth scales with resolution

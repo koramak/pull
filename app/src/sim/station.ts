@@ -1,36 +1,21 @@
 // The station — two circles at heart (hull ring r44, ore core r18), grown by
 // upgrades. Collision stays r44 at every stage; structure is outside it.
 //
-//   CAPACITY (truss)  — inner rails + cross-ties; reservoir ×1.5
 //   HULL (masts)      — subdivides the ring: 3 → 4 → 5 → 6 sections, each
 //                       boundary a 5px flare. Count the flares = hits left.
-//   SHIPS (darts)     — one craft per purchase on the r61 patrol, docked to
-//                       a section, dies with it.
+//   SHIELD (ring)     — a phosphor circle at r54 that eats one hit from any
+//                       split-born piece, then redraws itself over seconds.
+//                       Levels buy recharge speed; full level pays gold.
+//   REPAIR (relight)  — brings a dead section back. Only offered while one
+//                       is dead: repair or greed, spelled out on the plates.
 //
-// A hit takes one section, the structure standing on it, and a slice of the
-// ore (capacity buys the slice down — M4). While any section is dead, the
-// HULL plate repairs it instead of adding a new one (M6): repair or greed.
+// A hit takes one section and a flat slice of the ore (2026-08-30 ruling:
+// CAPACITY and SHIPS are gone — the cap never grows, spill never shrinks).
 
 import { TUNING } from '../config'
 import { emit } from '../events'
 
-export type Track = 'capacity' | 'hull' | 'ships'
-
-export interface Ship {
-  /** Index of the section this ship is docked to (dies with it). */
-  section: number
-  /** Even-spacing slot; patrol angle derives from this. */
-  slot: number
-  cooldown: number
-  /** Live tracer state (render reads; 0 = idle). */
-  tracerT: number
-  tx: number
-  ty: number
-  /** Current world position (updated by sim each step). */
-  x: number
-  y: number
-  angle: number
-}
+export type Track = 'hull' | 'shield' | 'repair'
 
 export class Station {
   x = 0
@@ -38,9 +23,14 @@ export class Station {
 
   sections: number = TUNING.station.sections
   dead: boolean[] = [false, false, false]
-  capacity = 0
-  ships: Ship[] = []
-  private lastDock = -1
+  /** SHIELD track: 0 = not bought, 1..maxLevel. */
+  shieldLevel = 0
+  /** Seconds until the shield re-arms; 0 = armed (when shieldLevel > 0). */
+  shieldDownT = 0
+  /** REPAIR purchases — only feeds totalUpgrades() for the tooth comb. */
+  repairs = 0
+  /** Section the last REPAIR relit (render flashes it warm); -1 = none. */
+  lastRepaired = -1
 
   reservoir = 0
   reservoirCap: number = TUNING.reservoir.baseCapacity
@@ -51,9 +41,10 @@ export class Station {
   reset(): void {
     this.sections = TUNING.station.sections
     this.dead = new Array(this.sections).fill(false)
-    this.capacity = 0
-    this.ships.length = 0
-    this.lastDock = -1
+    this.shieldLevel = 0
+    this.shieldDownT = 0
+    this.repairs = 0
+    this.lastRepaired = -1
     this.reservoir = 0
     this.reservoirCap = TUNING.reservoir.baseCapacity
     this.structureRev++
@@ -66,7 +57,7 @@ export class Station {
   }
 
   totalUpgrades(): number {
-    return this.capacity + (this.sections - TUNING.station.sections) + this.ships.length
+    return (this.sections - TUNING.station.sections) + this.shieldLevel + this.repairs
   }
 
   reservoirFull(): boolean {
@@ -82,43 +73,42 @@ export class Station {
     return false
   }
 
+  shieldArmed(): boolean {
+    return this.shieldLevel > 0 && this.shieldDownT <= 0
+  }
+
+  /** Seconds a full recharge takes at the current level. */
+  shieldRechargeTime(): number {
+    const R = TUNING.shield.recharge
+    return R[Math.min(R.length - 1, Math.max(0, this.shieldLevel - 1))]
+  }
+
   canUpgrade(track: Track): boolean {
-    if (track === 'capacity') return this.capacity < TUNING.choice.maxCapacity
-    // M6 — a damaged station can always buy the repair
-    if (track === 'hull') return this.sections < TUNING.station.maxSections || this.anyDead()
-    return this.ships.length < TUNING.choice.maxShips
+    if (track === 'hull') return this.sections < TUNING.station.maxSections
+    if (track === 'shield') return this.shieldLevel < TUNING.shield.maxLevel
+    return this.anyDead()
   }
 
   anyUpgradable(): boolean {
-    return this.canUpgrade('capacity') || this.canUpgrade('hull') || this.canUpgrade('ships')
+    return this.canUpgrade('hull') || this.canUpgrade('shield') || this.canUpgrade('repair')
   }
 
   /** Spend the full reservoir on a track (the surge pays for it). */
   applyUpgrade(track: Track): void {
-    if (track === 'capacity') {
-      this.capacity++
-      this.reservoirCap = Math.round(TUNING.reservoir.baseCapacity * Math.pow(TUNING.reservoir.capacityGrowth, this.capacity))
-    } else if (track === 'hull') {
-      // M6 — repair-or-greed: while any section is dead, HULL relights it
-      // instead of adding a new one. It still costs the whole reservoir.
+    if (track === 'hull') {
+      this.sections++
+      this.dead.push(false) // the ring re-divides
+    } else if (track === 'shield') {
+      this.shieldLevel = Math.min(TUNING.shield.maxLevel, this.shieldLevel + 1)
+      this.shieldDownT = 0 // a fresh (or upgraded) shield arrives armed
+    } else {
       const wounded = this.firstDead()
       if (wounded >= 0) {
         this.dead[wounded] = false
+        this.repairs++
+        this.lastRepaired = wounded
         emit('hullRepair', { section: wounded })
-      } else {
-        this.sections++
-        this.dead.push(false) // the ring re-divides
       }
-    } else {
-      // dock clockwise from the last ship, on an alive section
-      let sec = (this.lastDock + 1) % this.sections
-      for (let tries = 0; tries < this.sections; tries++) {
-        if (!this.dead[sec]) break
-        sec = (sec + 1) % this.sections
-      }
-      this.lastDock = sec
-      this.ships.push({ section: sec, slot: this.ships.length, cooldown: 0.8, tracerT: 0, tx: 0, ty: 0, x: this.x, y: this.y - TUNING.ships.orbitRadius, angle: 0 })
-      this.respace()
     }
     this.reservoir = 0
     this.structureRev++
@@ -145,7 +135,6 @@ export class Station {
   /**
    * A hit at angle a: the section there dies (or the nearest alive one —
    * damage always costs). Returns the index, or -1 if nothing was alive.
-   * Ships standing on the section die with the structure, in the same glitch.
    */
   damage(a: number): number {
     if (this.aliveCount() === 0) return -1
@@ -162,15 +151,7 @@ export class Station {
       sec = best
     }
     this.dead[sec] = true
-    for (let i = this.ships.length - 1; i >= 0; i--) {
-      if (this.ships[i].section === sec) this.ships.splice(i, 1)
-    }
-    this.respace()
     this.structureRev++
     return sec
-  }
-
-  private respace(): void {
-    for (let i = 0; i < this.ships.length; i++) this.ships[i].slot = i
   }
 }

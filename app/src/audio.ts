@@ -325,9 +325,19 @@ export function initAudioEvents(): void {
 
   on('deflect', () => { if (minorVoiceOk()) beep(jittered(420), 0.06, 'sine', 0.07) })
 
-  on('shipShot', e => {
-    if (minorVoiceOk()) beep(jittered(1800), 0.03, 'square', 0.05)
-    if (e.broke) noise(0.07, 0.06, 2000, 0.03)
+  // the shield catch — a bright, short "tink"; gold blocks add a warm ping
+  on('shieldBlock', e => {
+    beep(jittered(1500), 0.06, 'square', 0.08)
+    noise(0.05, 0.05, 2400)
+    if (e.gold > 0) beep(jittered(990), 0.09, 'sine', 0.07, 0, 0.05)
+  })
+
+  // re-armed: two soft rising ticks, minor-voice gated
+  on('shieldReady', () => {
+    if (minorVoiceOk()) {
+      beep(740, 0.05, 'triangle', 0.06)
+      beep(1110, 0.07, 'triangle', 0.06, 0, 0.06)
+    }
   })
 
   on('choiceOpen', () => beep(220, 0.22, 'sine', 0.06))

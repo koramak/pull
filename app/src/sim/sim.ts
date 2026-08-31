@@ -1,8 +1,8 @@
 // Fixed-timestep simulation (120Hz, interpolated render). Well physics and
 // the smash rule are a 1:1 port of prototype/pull.html; on top of it sit the
 // kit systems: the rock ladder (monolith → medium → shard → chip), rubble
-// crumbling on a graze, the reservoir, hull sections, ships, near-misses and
-// hit-stop. Behavior changes belong in config.ts.
+// crumbling on a graze, the reservoir, hull sections, the shield, near-misses
+// and hit-stop. Behavior changes belong in config.ts.
 
 import { TUNING, sampleDifficulty, type DifficultySample } from '../config'
 import { emit } from '../events'
@@ -201,8 +201,14 @@ export class Sim {
       if (objs[i].dead) pool.kill(i)
     }
 
-    // --- ships ---
-    if (interact) this.updateShips(dt)
+    // --- shield recharge ---
+    if (interact && st.shieldLevel > 0 && st.shieldDownT > 0) {
+      st.shieldDownT -= dt
+      if (st.shieldDownT <= 0) {
+        st.shieldDownT = 0
+        emit('shieldReady', undefined)
+      }
+    }
 
     // --- station contact, near-misses, offscreen culling ---
     if (interact) this.stationAndBounds()
@@ -323,6 +329,7 @@ export class Sim {
       f.rs = this.rng.range(TUNING.rocks.fragSpinMin, TUNING.rocks.fragSpinMax) * (this.rng.next() < 0.5 ? -1 : 1)
       f.seed = this.rng.next() * 1000
       f.touched = o.touched
+      f.frag = true // a broken piece — the shield's whole jurisdiction
     }
   }
 
@@ -381,95 +388,6 @@ export class Sim {
     emit('clearPulse', undefined)
   }
 
-  private updateShips(dt: number): void {
-    const st = this.station
-    const S = TUNING.ships
-    const n = st.ships.length
-    if (n === 0) return
-    const base = (game.time / S.orbitPeriod) * Math.PI * 2
-    for (let s = 0; s < n; s++) {
-      const ship = st.ships[s]
-      const a = base + (ship.slot / n) * Math.PI * 2
-      ship.x = st.x + Math.cos(a) * S.orbitRadius
-      ship.y = st.y + Math.sin(a) * S.orbitRadius
-      ship.angle = a + Math.PI / 2 // nose along the sweep
-      if (ship.tracerT > 0) ship.tracerT -= dt
-      if (ship.cooldown > 0) {
-        ship.cooldown -= dt
-        continue
-      }
-      const target = this.findThreat(ship.x, ship.y)
-      if (target) {
-        // N3 — shots act: real damage (a medium breaks outright) plus a
-        // shove along the tracer, so even a surviving rock is visibly hit.
-        target.hp -= S.damage
-        target.hitFlash = S.hitFlash
-        target.wounded = true
-        const kdx = target.x - ship.x
-        const kdy = target.y - ship.y
-        const kd = Math.hypot(kdx, kdy) || 1
-        target.vx += (kdx / kd) * S.knockback
-        target.vy += (kdy / kd) * S.knockback
-        ship.cooldown = S.reload
-        ship.tracerT = S.tracerDuration
-        ship.tx = target.x
-        ship.ty = target.y
-        ship.angle = Math.atan2(target.y - ship.y, target.x - ship.x) + Math.PI / 2
-        const broke = target.hp <= 0
-        if (broke) {
-          this.fragment(target)
-          target.dead = true
-          // swept next step; mark now so pairs skip it
-        }
-        emit('shipShot', { x0: ship.x, y0: ship.y, x1: target.x, y1: target.y, broke })
-      }
-    }
-    // sweep anything a ship broke
-    for (let i = this.pool.count - 1; i >= 0; i--) {
-      if (this.pool.objs[i].dead) this.pool.kill(i)
-    }
-  }
-
-  /** Nearest cool rock on a collision course with the station, in range —
-   *  or, failing that, a wounded rock: the knockback of the first shot tends
-   *  to shove targets off course, and ships finish what they start (N3). */
-  private findThreat(fromX: number, fromY: number): GameObject | null {
-    const S = TUNING.ships
-    let best: GameObject | null = null
-    let bestD: number = S.range
-    let wounded: GameObject | null = null
-    let woundedD: number = S.range
-    for (let i = 0; i < this.pool.count; i++) {
-      const o = this.pool.objs[i]
-      if (!isRock(o.kind) || o.dead) continue
-      const dx = o.x - fromX
-      const dy = o.y - fromY
-      const d = Math.hypot(dx, dy)
-      if (d >= bestD && d >= woundedD) continue
-      if (this.onCollisionCourse(o)) {
-        if (d < bestD) { best = o; bestD = d }
-      } else if (o.wounded && d < woundedD) {
-        wounded = o
-        woundedD = d
-      }
-    }
-    return best ?? wounded
-  }
-
-  private onCollisionCourse(o: GameObject): boolean {
-    const st = this.station
-    const rx = st.x - o.x
-    const ry = st.y - o.y
-    const v2 = o.vx * o.vx + o.vy * o.vy
-    if (v2 < 1) return false
-    const tClosest = (rx * o.vx + ry * o.vy) / v2
-    if (tClosest < 0 || tClosest > TUNING.ships.aimLead) return false
-    const cx = o.x + o.vx * tClosest - st.x
-    const cy = o.y + o.vy * tClosest - st.y
-    const rr = TUNING.station.radius + o.r + 6
-    return cx * cx + cy * cy < rr * rr
-  }
-
   // -------------------------------------------------------------------------
 
   private stationAndBounds(): void {
@@ -480,11 +398,31 @@ export class Sim {
     const margin = TUNING.objects.offscreenMargin
     const NM = TUNING.nearMiss
 
+    let shieldOn = st.shieldArmed()
+    const shR = TUNING.shield.radius
+
     for (let i = pool.count - 1; i >= 0; i--) {
       const o = objs[i]
       const dx = o.x - st.x
       const dy = o.y - st.y
       const d = Math.hypot(dx, dy)
+
+      // The shield: one broken piece, caught at the ring. Whole rocks and
+      // ore pass straight through; outbound shrapnel never wastes the charge.
+      if (shieldOn && o.frag && isRock(o.kind) && d < o.r + shR && dx * o.vx + dy * o.vy < 0) {
+        shieldOn = false // one charge — the next piece this frame gets through
+        st.shieldDownT = st.shieldRechargeTime()
+        const gold = st.shieldLevel >= TUNING.shield.maxLevel ? TUNING.shield.goldPerBlock : 0
+        if (gold > 0) {
+          game.oreTotal += gold
+          const wasFull = st.reservoirFull()
+          st.reservoir = Math.min(st.reservoirCap, st.reservoir + gold)
+          if (!wasFull && st.reservoirFull()) emit('reservoirFull', undefined)
+        }
+        emit('shieldBlock', { x: o.x, y: o.y, angle: Math.atan2(dy, dx), gold })
+        pool.kill(i)
+        continue
+      }
 
       if (d < o.r + sr) {
         const angle = Math.atan2(dy, dx)
@@ -554,10 +492,9 @@ export class Sim {
     const sectionsBefore = st.sections
     const sec = st.damage(angle)
     if (sec < 0) return
-    // M4 — capacity is armor for your gold: each purchase buys the spill down
-    const spillTable = TUNING.reservoir.spillByCapacity
-    const spillFrac = spillTable[Math.min(st.capacity, spillTable.length - 1)]
-    const spilled = Math.round(st.reservoir * spillFrac)
+    // A hit always costs the same flat slice of the ore (capacity's spill
+    // buy-down left with the CAPACITY track, 2026-08-30).
+    const spilled = Math.round(st.reservoir * TUNING.reservoir.spillFrac)
     st.reservoir -= spilled
     this.hitStop(TUNING.hitStop)
     const alive = st.aliveCount()

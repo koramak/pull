@@ -14,9 +14,12 @@ export interface EventMap {
   oreSpill: { amount: number; x: number; y: number }
   deflect: { x: number; y: number; value: number }
   nearMiss: { x: number; y: number; gap: number; angle: number }
-  shipShot: { x0: number; y0: number; x1: number; y1: number; broke: boolean }
+  /** The shield ate a broken piece. `gold` > 0 only at full shield level. */
+  shieldBlock: { x: number; y: number; angle: number; gold: number }
+  /** The shield finished its recharge and is armed again. */
+  shieldReady: void
   choiceOpen: void
-  choiceLock: { track: 'capacity' | 'hull' | 'ships' }
+  choiceLock: { track: 'hull' | 'shield' | 'repair' }
   surge: void
   /** N4 — the post-upgrade shockwave clearing the field. */
   clearPulse: void

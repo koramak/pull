@@ -203,8 +203,8 @@ export interface SavedRun {
   smashes: number
   sections: number
   dead: number[]
-  capacity: number
-  ships: number
+  /** SHIELD track level 0-3 (absent in pre-shield saves — treat as 0). */
+  shield?: number
   reservoir: number
   at: number
 }

@@ -6,6 +6,37 @@
 
 ---
 
+## ADDENDUM — 2026-08-30 upgrade rebuild (overrides everything below)
+
+Zane's direction: "we like the feel of this build, so be laser-focused with
+upgrades." The three-plate choice is rebuilt around exactly that:
+
+- **SHIPS REPLACED BY SHIELD.** The ship track is gone (darts, tracers,
+  targeting — all removed). In its place: a phosphor ring at r54 that
+  **blocks hits from broken pieces** — objects born from a split (mediums
+  off a monolith, shards, chips, rubble shards; tagged `frag` at fragment
+  time). Whole spawned asteroids and ore pass straight through. One charge:
+  after a block it recharges over time, redrawing itself clockwise from 12.
+  - Levels (3, like ships): L1 = 10s recharge, L2 = 6s, L3 = 3.5s.
+  - **Final level: blocked hits pay gold** — +1 reservoir unit per block,
+    straight into the core (Zane's explicit spec; the no-passive-income rule
+    stands — this is event-driven pay for an upgrade you bought).
+  - All numbers in `config.ts → shield`.
+- **CAPACITY REPLACED BY REPAIR.** The repair-or-greed decision now lives on
+  its own plate: REPAIR relights the first dead section, and is enabled only
+  while one is dead. HULL is pure growth again (3 → 6 sections) — M6's
+  "HULL repairs while wounded" dual behavior is superseded.
+- Consequences of capacity leaving, accepted: the reservoir cap never grows
+  (every upgrade costs a flat 40 units / 8 banks) and spill is a flat 25%
+  (`reservoir.spillFrac`). M4's spill buy-down and cap growth are retired.
+- **M9 and N3 are moot** (no ships to tune or fix).
+- **The pre-shield build is preserved**: playable archive at
+  `prototype/archive-2026-08-30/` →
+  https://koramak.github.io/pull/prototype/archive-2026-08-30/ and git tag
+  `pre-shield-2026-08-30` on the source.
+
+---
+
 ## ADDENDUM — 2026-08-01 playtest rulings (these override the sections below)
 
 - **F1 REVERTED.** The well envelope (attack ramp, release decay, slip
