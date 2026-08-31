@@ -184,6 +184,7 @@ export const TUNING = {
     unitsPerBank: 5,      // ore units credited per banked ore
     baseCapacity: 40,     // N2 — 8 banks to a choice (~35-45s of play)
     spillFrac: 0.25,      // reservoir share lost on a hull hit
+    repairCostFrac: 0.5,  // REPAIR is cheap: it spends only this share
     fullPulsePeriod: 1.05 // the only pulsing element in the game
   },
 

@@ -26,6 +26,9 @@ upgrades." The three-plate choice is rebuilt around exactly that:
   its own plate: REPAIR relights the first dead section, and is enabled only
   while one is dead. HULL is pure growth again (3 → 6 sections) — M6's
   "HULL repairs while wounded" dual behavior is superseded.
+  - **REPAIR is half price** (Zane, 2026-08-30 playtest): it spends only
+    50% of the reservoir (`reservoir.repairCostFrac`); the other half stays
+    banked toward the next choice. HULL and SHIELD still cost the full bar.
 - Consequences of capacity leaving, accepted: the reservoir cap never grows
   (every upgrade costs a flat 40 units / 8 banks) and spill is a flat 25%
   (`reservoir.spillFrac`). M4's spill buy-down and cap growth are retired.

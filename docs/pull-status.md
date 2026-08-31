@@ -102,7 +102,10 @@ the feel of this build is right, so upgrades get laser-focused:
 - **CAPACITY → REPAIR**: repair-or-greed is its own plate now — REPAIR
   relights the first dead section, enabled only while one is dead; HULL is
   pure growth (3→6) again. Reservoir cap is a flat 40 (constant upgrade
-  cost), spill a flat 25% (`reservoir.spillFrac`).
+  cost), spill a flat 25% (`reservoir.spillFrac`). Playtest ruling same
+  day: **REPAIR costs half** — it spends 50% of the reservoir
+  (`reservoir.repairCostFrac`), the rest stays banked. Zane's verdict on
+  the rebuild otherwise: liking it.
 - Verified on the live deploy by driving `__pull.sim.frame` in the in-app
   browser: block/cooldown/recharge at L1 and L3, gold at L3, whole rocks
   passing, REPAIR gating and relight, outbound charge retention. (Note:

@@ -6,8 +6,9 @@
 //   SHIELD (ring)     — a phosphor circle at r54 that eats one hit from any
 //                       split-born piece, then redraws itself over seconds.
 //                       Levels buy recharge speed; full level pays gold.
-//   REPAIR (relight)  — brings a dead section back. Only offered while one
-//                       is dead: repair or greed, spelled out on the plates.
+//   REPAIR (relight)  — brings a dead section back, and cheap: it spends
+//                       only half the gold. Only offered while one is
+//                       dead: repair or greed, spelled out on the plates.
 //
 // A hit takes one section and a flat slice of the ore (2026-08-30 ruling:
 // CAPACITY and SHIPS are gone — the cap never grows, spill never shrinks).
@@ -93,7 +94,9 @@ export class Station {
     return this.canUpgrade('hull') || this.canUpgrade('shield') || this.canUpgrade('repair')
   }
 
-  /** Spend the full reservoir on a track (the surge pays for it). */
+  /** Spend the reservoir on a track (the surge pays for it). HULL and
+   *  SHIELD take it all; REPAIR is cheap — it spends only repairCostFrac,
+   *  so patching a wound doesn't reset the whole climb to the next choice. */
   applyUpgrade(track: Track): void {
     if (track === 'hull') {
       this.sections++
@@ -110,7 +113,9 @@ export class Station {
         emit('hullRepair', { section: wounded })
       }
     }
-    this.reservoir = 0
+    this.reservoir = track === 'repair'
+      ? Math.round(this.reservoir * (1 - TUNING.reservoir.repairCostFrac))
+      : 0
     this.structureRev++
   }
 
