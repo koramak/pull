@@ -131,7 +131,7 @@ build (recipe under Dev workflow). Bots are models, not thumbs.
   their first 150ms. The build maxes at six purchases (~2.5 min), after
   which the only plate is REPAIR. Chips are 23-39% of hull hits. No
   parked-thumb strategy survives 30s.
-- **Zane's rulings this session (not yet built):** (a) skilled runs should
+- **Zane's rulings this session (built later the same day, see below):** (a) skilled runs should
   be 3-5 min — difficulty limits keep creeping and/or repair cost rises;
   (b) 50%+ of players must reach an upgrade — bot test says a 20/30/40
   rising cost gives novices ~78% reach, first choice ~25-30s; (c) chips
@@ -141,6 +141,35 @@ build (recipe under Dev workflow). Bots are models, not thumbs.
 - **Still open, no ruling:** sibling-cascade scoring/hit-stops; challenge
   spawn positions still scale with viewport size; small cleanup (stale ship
   comments, dead `hp`/`hitFlash`, unused `spawn` event).
+
+**2026-11-10 (later) — economy + OVERCHARGE** (deployed at `a31fe8b`). The
+four rulings above are now built, bot-tuned first, verified on the deployed
+bundle (unit checks + 300 bot runs on the real rules):
+
+- **Cost curve 20/30/40** (`reservoir.costCurve`, indexed by `station.bought`
+  — HULL/SHIELD/OVERCHARGE purchases, not repairs). Novice bots reach an
+  upgrade in 84-92% of runs; first choice ~24-29s.
+- **REPAIR rises** 50/65/80/100% (`reservoir.repairCostFracs`).
+- **Chips are dust**: no hull damage, no shield charge; they `crumble`.
+- **Difficulty creep** (`difficulty.creep` 90s / 0.4 / 18): unbounded past
+  the old limits. Skilled bot median 270s building first, 202s playing
+  greedy. These three numbers are the run-length knob.
+- **OVERCHARGE** (`config.ts → overcharge`, `Track` now has four values):
+  a maxed track's plate becomes OVERCHARGE; each buy doubles a multiplier
+  on every point (cap x256); a hull hit takes one level back. Bonus mode
+  while lit: warp starfield, beat rings + motes, gold frame, gold score
+  with the multiplier, gold smash rings/floats, level-up burst, fanfare.
+  **Deviation from Zane's wording, flagged to him:** it unlocks when ONE
+  track is maxed, not both (`unlockMaxedTracks: 1`; set 2 for his original)
+  — with both required only ~55% of skilled and ~6% of average bot runs
+  ever saw it. With one: 88-98% of greedy average/skilled runs, median x8
+  for skilled, best x256.
+- **Single lit plate = no freeze** (`upgrade.autoPick`): bought on release,
+  lock/surge/build play over live play, clear pulse still fires.
+- Visuals are a first pass seen only in pane screenshots — **Zane has not
+  played it yet**; expect tuning of the `overcharge` block after he does.
+- **Proposed, awaiting ruling:** two more trees (MAGNET, PULSE) offered as
+  a draft of three plates, then named fusions when two trees are maxed.
 
 ## Parked / not built (deliberate rulings — do not build without Zane)
 
