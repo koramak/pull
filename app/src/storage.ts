@@ -207,6 +207,10 @@ export interface SavedRun {
   shield?: number
   /** Seconds left on the shield recharge (absent in older saves). */
   shieldDownT?: number
+  /** OVERCHARGE level, choices bought, repairs bought (absent in older saves). */
+  overcharge?: number
+  bought?: number
+  repairs?: number
   reservoir: number
   at: number
   /** P2 — set when the interrupted run was a challenge: it stays unranked. */

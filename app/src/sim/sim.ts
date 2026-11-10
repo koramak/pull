@@ -273,6 +273,7 @@ export class Sim {
         const gap = Math.hypot(sdx, sdy) - TUNING.station.radius
         risky = gap < S.dangerRing
         if (risky) value *= S.riskMult
+        value *= this.station.scoreMult() // OVERCHARGE multiplies everything
         game.score += value
         game.smashes++
       }
@@ -416,7 +417,7 @@ export class Sim {
 
       // The shield: one broken piece, caught at the ring. Whole rocks and
       // ore pass straight through; outbound shrapnel never wastes the charge.
-      if (shieldOn && o.frag && isRock(o.kind) && d < o.r + shR && dx * o.vx + dy * o.vy < 0) {
+      if (shieldOn && o.frag && isRock(o.kind) && o.kind !== CHIP && d < o.r + shR && dx * o.vx + dy * o.vy < 0) {
         shieldOn = false // one charge — the next piece this frame gets through
         st.shieldDownT = st.shieldRechargeTime()
         const gold = st.shieldLevel >= TUNING.shield.maxLevel ? TUNING.shield.goldPerBlock : 0
@@ -435,6 +436,10 @@ export class Sim {
         const angle = Math.atan2(dy, dx)
         if (o.kind === ORE) {
           this.bank(angle)
+        } else if (o.kind === CHIP) {
+          // 2026-11-10 — chips are dust: too small to track, so they never
+          // cost hull (or a shield charge). They tick off the ring and die.
+          emit('crumble', { x: o.x, y: o.y })
         } else if (game.phase === 'firstrun') {
           // wordless teaching — the station cannot be hurt yet; the rock
           // just comes apart and the beat resets
@@ -458,8 +463,9 @@ export class Sim {
         const receding = d > o.lastDist
         if (receding && o.minGap < NM.maxGap && o.minGap > 0 && Math.hypot(o.vx, o.vy) > NM.minApproachSpeed) {
           o.missCredited = true
-          game.score += TUNING.score.nearMiss
-          emit('nearMiss', { x: o.x, y: o.y, gap: Math.round(o.minGap), angle: Math.atan2(dy, dx) })
+          const nmValue = TUNING.score.nearMiss * st.scoreMult()
+          game.score += nmValue
+          emit('nearMiss', { x: o.x, y: o.y, gap: Math.round(o.minGap), angle: Math.atan2(dy, dx), value: nmValue })
         }
       }
       o.lastDist = d
@@ -468,7 +474,7 @@ export class Sim {
         if (isRock(o.kind) && o.touched && o.kind !== CHIP) {
           // M1 — a deflection that skimmed the hull pays double
           const risky = o.minGap < TUNING.score.dangerRing
-          const value = TUNING.score.deflect * (risky ? TUNING.score.riskMult : 1)
+          const value = TUNING.score.deflect * (risky ? TUNING.score.riskMult : 1) * st.scoreMult()
           game.score += value
           emit('deflect', {
             x: Math.max(24, Math.min(this.width - 24, o.x)),
@@ -485,7 +491,7 @@ export class Sim {
     const st = this.station
     const R = TUNING.reservoir
     const doubled = st.reservoirFull()
-    const gain = TUNING.score.bank * (doubled ? 2 : 1)
+    const gain = TUNING.score.bank * (doubled ? 2 : 1) * st.scoreMult()
     game.score += gain
     game.oreTotal += R.unitsPerBank
     const wasFull = st.reservoirFull()
@@ -507,6 +513,8 @@ export class Sim {
     const alive = st.aliveCount()
     this.hullCritical = alive === 1
     emit('hullHit', { sectionsBefore, alive, x: st.x, y: st.y, angle })
+    // the OVERCHARGE stack is something you defend: a hit takes a level back
+    if (alive > 0 && st.loseOvercharge()) emit('overcharge', { level: st.overcharge, up: false })
     if (spilled > 0) emit('oreSpill', { amount: spilled, x: st.x, y: st.y })
     if (alive <= 0) {
       game.pendingCollapse = true

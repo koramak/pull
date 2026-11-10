@@ -2,6 +2,7 @@
 // live field is not saved — it repopulates; the build, score and clock are
 // what the player would miss.
 
+import { TUNING } from './config'
 import { game, restoreRun } from './state'
 import {
   saveRun as persist, loadSavedRun as load, type SavedRun
@@ -19,6 +20,9 @@ export function saveRun(sim: Sim): void {
     dead: st.dead.map((d, i) => (d ? i : -1)).filter(i => i >= 0),
     shield: st.shieldLevel,
     shieldDownT: st.shieldDownT,
+    overcharge: st.overcharge,
+    bought: st.bought,
+    repairs: st.repairs,
     reservoir: st.reservoir,
     at: Date.now(),
     challenge: game.challenge ? { target: game.challenge.target } : null,
@@ -72,6 +76,12 @@ export function restoreSnapshot(sim: Sim, saved: SavedRun): void {
   for (const idx of saved.dead) {
     if (idx >= 0 && idx < st.sections) st.dead[idx] = true
   }
+  // the stack, the price ladder and the repair ladder come back too
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0)
+  st.overcharge = Math.min(TUNING.overcharge.maxLevel, num(saved.overcharge))
+  st.bought = Math.max(st.bought, num(saved.bought))
+  st.repairs = num(saved.repairs)
+  st.syncCap()
   st.reservoir = Math.min(st.reservoirCap, Math.max(0, saved.reservoir))
   const down = saved.shieldDownT
   if (shield > 0 && typeof down === 'number' && Number.isFinite(down) && down > 0) {

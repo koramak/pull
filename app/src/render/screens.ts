@@ -509,7 +509,8 @@ function drawTrackedLeft(ctx: CanvasRenderingContext2D, text: string, x: number,
 const TRACK_LABEL: Record<Track, string> = {
   hull: 'HULL',
   shield: 'SHIELD',
-  repair: 'REPAIR'
+  repair: 'REPAIR',
+  overcharge: 'OVERCHARGE'
 }
 
 export function drawChoice(ctx: CanvasRenderingContext2D, st: Station, l: Layout): void {
@@ -532,10 +533,11 @@ export function drawChoice(ctx: CanvasRenderingContext2D, st: Station, l: Layout
     ctx.stroke()
     drawPlatePreview(ctx, p.track, st, px, py - 12, p.enabled)
     ctx.fillStyle = PAL.ink
-    ctx.font = `16px ${FONT_LABEL}`
+    // OVERCHARGE is a long word for a round plate — it sets smaller
+    ctx.font = `${p.track === 'overcharge' ? 11 : 16}px ${FONT_LABEL}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
-    drawTracked(ctx, TRACK_LABEL[p.track], px + 0.6, py + 42, 1.2)
+    drawTracked(ctx, TRACK_LABEL[p.track], px + 0.6, py + 42, p.track === 'overcharge' ? 0.8 : 1.2)
     ctx.restore()
   }
 
@@ -597,6 +599,27 @@ function drawPlatePreview(ctx: CanvasRenderingContext2D, track: Track, st: Stati
   ctx.translate(cx, cy)
   ctx.lineCap = 'round'
   const gold = enabled
+
+  if (track === 'overcharge') {
+    // the next multiplier, in gold, inside a hot ring — what you're buying
+    ctx.strokeStyle = gold ? PAL.ore : rgba(PAL.station, 0.4)
+    ctx.lineWidth = 1.8
+    if (gold) {
+      ctx.shadowColor = 'rgba(255,226,63,0.85)'
+      ctx.shadowBlur = 8
+    }
+    ctx.beginPath()
+    ctx.arc(0, 0, 28, 0, TAU)
+    ctx.stroke()
+    ctx.fillStyle = gold ? PAL.ore : rgba(PAL.station, 0.5)
+    ctx.font = `30px ${FONT_NUM}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('×' + Math.pow(2, st.overcharge + 1), 0, 1)
+    ctx.shadowBlur = 0
+    ctx.restore()
+    return
+  }
 
   // existing hull, mini (r24) with current section count
   const n = st.sections

@@ -43,6 +43,8 @@ let humFilter: BiquadFilterNode | null = null
 let humOscGain: GainNode | null = null
 let humOn = false
 let humLastI = -1
+// OVERCHARGE level mirror — smashes sparkle while it's lit
+let overLevel = 0
 
 function now(): number {
   return ctx ? ctx.currentTime : 0
@@ -307,6 +309,8 @@ export function initAudioEvents(): void {
       const f = TUNING.audio.smashBaseHz * ladderStep(e.chain)
       beep(f, 0.08, 'square', 0.1)
       noise(0.09, 0.08, 2400)
+      // bonus mode: every smash rings an octave up, like a jackpot counter
+      if (overLevel > 0) beep(f * 2, 0.09, 'triangle', 0.06, 0, 0.03)
     } else {
       beep(jittered(240), 0.1, 'sawtooth', 0.08) // ore lost
     }
@@ -382,6 +386,23 @@ export function initAudioEvents(): void {
     beep(660, 0.16, 'triangle', 0.09, 0, 0.09)
   })
 
+  // OVERCHARGE — up: a run straight up the ladder, starting higher with
+  // each level. Down: two falling notes, the stack giving ground.
+  on('overcharge', e => {
+    overLevel = e.level
+    if (e.up) {
+      const base = 440 * Math.pow(1.06, Math.min(8, e.level))
+      const L = TUNING.audio.ladder
+      for (let k = 0; k < L.length; k++) beep(base * L[k], 0.11, 'triangle', 0.1, 0, k * 0.055)
+      beep(base * 4, 0.3, 'sine', 0.07, 0, L.length * 0.055)
+      noise(0.35, 0.07, 3200)
+    } else {
+      beep(520, 0.12, 'sawtooth', 0.08, 390)
+      beep(390, 0.2, 'sawtooth', 0.07, 260, 0.1)
+    }
+  })
+
+  on('runStart', () => { overLevel = 0 })
   on('runStart', () => setHeartbeat(false))
   on('collapse', () => setHeartbeat(false))
 

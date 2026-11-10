@@ -15,7 +15,7 @@ import { SeededRNG } from './rng'
 import type { PointerState } from './sim/sim'
 import { MONOLITH, MEDIUM, SHARD } from './sim/pool'
 import { initHaptics } from './haptics'
-import { initFx, updateFx, clearFx } from './fx/fx'
+import { fx, initFx, updateFx, clearFx } from './fx/fx'
 import { intensity } from './intensity'
 import { upgrade } from './upgrade'
 import { firstRun } from './firstrun'
@@ -171,6 +171,7 @@ function frame(now: number): void {
   if (dt > TUNING.sim.maxFrameDt) dt = TUNING.sim.maxFrameDt
   if (dt < 0) dt = 0
 
+  fx.overLevel = sim.station.overcharge // bonus-mode colour for floats
   updateState(dt, inputState.anyPointerDown)
   updateInput(dt)
   updateFx(dt)
@@ -193,9 +194,12 @@ function frame(now: number): void {
     ) {
       choiceArm += dt
       if (choiceArm >= TUNING.choice.enterDelay) {
-        choiceFrom = phase
-        upgrade.open(sim)
-        setPhase('choice')
+        // one lit plate is not a choice — buy it without stopping the game
+        if (!upgrade.autoPick(sim)) {
+          choiceFrom = phase
+          upgrade.open(sim)
+          setPhase('choice')
+        }
         choiceArm = 0
       }
     } else {

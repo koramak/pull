@@ -41,5 +41,5 @@ export function updateDebug(sim: Sim, dt: number): void {
     `phase ${game.phase}  t ${game.time.toFixed(1)}  intensity ${intensity.value.toFixed(2)}\n` +
     `hull ${st.aliveCount()}/${st.sections}  shield L${st.shieldLevel}` +
     `${st.shieldLevel > 0 ? (st.shieldDownT > 0 ? ` cd ${st.shieldDownT.toFixed(1)}` : ' armed') : ''}  ` +
-    `ore ${st.reservoir}/${st.reservoirCap}`
+    `ore ${st.reservoir}/${st.reservoirCap}  oc ${st.overcharge}`
 }

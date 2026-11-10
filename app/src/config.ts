@@ -82,6 +82,12 @@ export const TUNING = {
     // becomes genuinely impossible. A continuous slope, never steps.
     limits: { spawnInterval: 0.34, speedBonus: 150, oreChance: 0.26, monolithChance: 0.42 },
     limitTau: 180,             // s to close ~63% of the remaining gap
+    // 2026-11-10 — the limits above are finite, and a good player with REPAIR
+    // could ride them forever. Past `from` seconds the field keeps tightening
+    // without bound: every minute divides the spawn interval by another
+    // (1 + intervalRate) share and adds speedPerMin to rock speed. Bot-tuned
+    // for a skilled run of ~4-5 minutes; these three numbers are the knob.
+    creep: { from: 90, intervalRate: 0.4, speedPerMin: 18 },
     intervalJitterMin: 0.7,
     intervalJitterMax: 1.3,
     rubbleShareOfHeavies: 0.35 // rubble is a variant of the heavy class
@@ -182,10 +188,41 @@ export const TUNING = {
   // upgrade costs the same 8 banks, and spill is one flat fraction.
   reservoir: {
     unitsPerBank: 5,      // ore units credited per banked ore
-    baseCapacity: 40,     // N2 — 8 banks to a choice (~35-45s of play)
+    // 2026-11-10 — the cost of a choice rises with each one bought (HULL,
+    // SHIELD or OVERCHARGE; repairs don't count): 4 banks, 6, then 8 for
+    // good. The first choice lands ~25-30s in, so a first-timer sees the
+    // hook before the field gets them. Same curve for everyone.
+    costCurve: [20, 30, 40],
     spillFrac: 0.25,      // reservoir share lost on a hull hit
-    repairCostFrac: 0.5,  // REPAIR is cheap: it spends only this share
+    // REPAIR starts cheap and gets dearer every time you lean on it: the
+    // share of the reservoir it spends, by repairs already bought this run.
+    repairCostFracs: [0.5, 0.65, 0.8, 1],
     fullPulsePeriod: 1.05 // the only pulsing element in the game
+  },
+
+  // OVERCHARGE — the endgame. When a track is maxed its plate turns into
+  // OVERCHARGE: spend a full reservoir to double a multiplier on every point
+  // the run scores (×2, ×4, ×8 …). A hull hit knocks a level off, so the
+  // stack is something you defend. While it's lit the tube goes into bonus
+  // mode: warp stars, gold frame, beat rings, gold score.
+  overcharge: {
+    maxLevel: 8,           // ×256 — the ceiling
+    unlockMaxedTracks: 1,  // maxed tracks (of HULL, SHIELD) before it appears; 2 = both
+    lossPerHit: 1,         // levels a hull hit costs
+    starWarp: 3,           // starfield spin gains this × per level
+    beatHz: 1.1,           // halo-ring beat at level 1…
+    beatHzPerLevel: 0.18,  // …quickening with each level
+    haloR0: 50,
+    haloR1: 124,
+    frameDepth: 34,        // px of gold at the screen edges
+    frameAlpha: 0.1,       // …at level 1
+    frameAlphaPerLevel: 0.035,
+    frameAlphaMax: 0.32,
+    orbitR: 68,            // one gold mote circles the station per level
+    burstDur: 0.7,         // the level-up: ring + rays + a gold wash
+    burstRays: 18,
+    washAlpha: 0.2,
+    trauma: 0.32
   },
 
   // Upgrade moment — full, frozen, swiped, spent.
@@ -471,6 +508,17 @@ export interface DifficultySample {
 }
 
 export function sampleDifficulty(t: number, out: DifficultySample): DifficultySample {
+  sampleCurve(t, out)
+  const C = TUNING.difficulty.creep
+  if (t > C.from) {
+    const mins = (t - C.from) / 60
+    out.spawnInterval = out.spawnInterval / (1 + C.intervalRate * mins)
+    out.speedBonus = out.speedBonus + C.speedPerMin * mins
+  }
+  return out
+}
+
+function sampleCurve(t: number, out: DifficultySample): DifficultySample {
   const curve = TUNING.difficulty.curve
   const first = curve[0]
   const last = curve[curve.length - 1]

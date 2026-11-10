@@ -13,13 +13,15 @@ export interface EventMap {
   hullHit: { sectionsBefore: number; alive: number; x: number; y: number; angle: number }
   oreSpill: { amount: number; x: number; y: number }
   deflect: { x: number; y: number; value: number }
-  nearMiss: { x: number; y: number; gap: number; angle: number }
+  nearMiss: { x: number; y: number; gap: number; angle: number; value: number }
   /** The shield ate a broken piece. `gold` > 0 only at full shield level. */
   shieldBlock: { x: number; y: number; angle: number; gold: number }
   /** The shield finished its recharge and is armed again. */
   shieldReady: void
   choiceOpen: void
-  choiceLock: { track: 'hull' | 'shield' | 'repair' }
+  choiceLock: { track: 'hull' | 'shield' | 'repair' | 'overcharge' }
+  /** The OVERCHARGE stack changed: bought a level (up) or lost one to a hit. */
+  overcharge: { level: number; up: boolean }
   surge: void
   /** N4 — the post-upgrade shockwave clearing the field. */
   clearPulse: void

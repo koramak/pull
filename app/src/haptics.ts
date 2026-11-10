@@ -27,5 +27,6 @@ export function initHaptics(): void {
   on('shieldBlock', () => pulse(12))
   on('choiceLock', () => pulse(10))
   on('surge', () => pulse(20))
+  on('overcharge', e => pulse(e.up ? [14, 30, 14, 30, 40] : 24))
   on('collapse', () => pulse([40, 60, 90]))
 }

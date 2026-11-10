@@ -55,6 +55,10 @@ export class Renderer {
   private vigEl: HTMLElement | null = null
   private wobblePhase = 0
   private timeNow = 0
+  /** Starfield clock — runs fast under OVERCHARGE (the warp). */
+  private starT = 0
+  /** OVERCHARGE level in force this frame (0 outside live play). */
+  private oc = 0
   /** M5 — short-lived sparks off the ring while one section from death. */
   private sparks: Array<{ x: number; y: number; vx: number; vy: number; t: number; life: number }> = []
   /** F6 — the rolled score the counter displays (chases game.score). */
@@ -115,6 +119,9 @@ export class Renderer {
     const wellActive = pointer.active && (phase === 'run' || phase === 'firstrun' || phase === 'collapse' || phase === 'title')
     this.well.update(dt, wellActive)
     this.timeNow = t
+    // OVERCHARGE bonus mode only exists during live play
+    this.oc = phase === 'run' || phase === 'choice' ? sim.station.overcharge : 0
+    this.starT += dt * (1 + (settings.reduceMotion ? 0 : this.oc * TUNING.overcharge.starWarp))
 
     ctx.setTransform(px, 0, 0, px, 0, 0)
     ctx.fillStyle = PAL.bg
@@ -132,7 +139,9 @@ export class Renderer {
       case 'collapse': starAlpha = intensity.starAlpha() * Math.max(0.12, this.collapseDim()); break
       default: starAlpha = intensity.starAlpha() * (upgrade.active() ? Math.max(upgrade.dim(), 0.4) : 1)
     }
-    this.stars.draw(ctx, t, sim.station.x, sim.station.y, starAlpha)
+    // warp stars also burn brighter
+    if (this.oc > 0) starAlpha = Math.min(0.9, starAlpha + 0.12 + 0.04 * this.oc)
+    this.stars.draw(ctx, this.starT, sim.station.x, sim.station.y, starAlpha)
 
     // --- the field ---------------------------------------------------------
     // N1/L5 — the title is a live field too: drifters behind the shell type
@@ -265,6 +274,10 @@ export class Renderer {
       flinchX = fx.flinch.dx * TUNING.flinch.px * f * f
       flinchY = fx.flinch.dy * TUNING.flinch.px * f * f
     }
+
+    // OVERCHARGE — under the station: beat rings radiating out, and the
+    // gold frame. Drawn first so nothing readable is ever covered.
+    if (this.oc > 0 && !hideStation) this.drawOverchargeBed(ctx, st, fieldAlpha)
 
     // station (+ its shield) recoil together
     if (flinchX !== 0 || flinchY !== 0) ctx.translate(flinchX, flinchY)
@@ -536,11 +549,19 @@ export class Renderer {
   private drawFieldFx(ctx: CanvasRenderingContext2D, sim: Sim, fieldAlpha: number): void {
     const st = sim.station
 
-    // smash shock rings — the only pure white in ordinary play
-    for (const s of fx.shocks) {
-      this.shockRing(ctx, s.x, s.y, s.t, TUNING.smash.ringA, fieldAlpha)
-      this.shockRing(ctx, s.x, s.y, s.t, TUNING.smash.ringB, fieldAlpha)
+    // smash shock rings — the only pure white in ordinary play; gold and
+    // glowing while OVERCHARGE is lit
+    const hot = this.oc > 0
+    if (hot) {
+      ctx.shadowColor = 'rgba(255,226,63,0.8)'
+      ctx.shadowBlur = 8
     }
+    for (const s of fx.shocks) {
+      this.shockRing(ctx, s.x, s.y, s.t, TUNING.smash.ringA, fieldAlpha, hot ? PAL.ore : PAL.white)
+      this.shockRing(ctx, s.x, s.y, s.t, TUNING.smash.ringB, fieldAlpha, hot ? PAL.oreFacet : PAL.white)
+    }
+    ctx.shadowBlur = 0
+    this.drawOverchargeBurst(ctx, st, fieldAlpha)
     // rubble crumble — quiet dim ring
     for (const c of fx.crumbles) {
       const f = c.t / 0.3
@@ -642,17 +663,124 @@ export class Renderer {
     ctx.globalAlpha = 1
   }
 
-  private shockRing(ctx: CanvasRenderingContext2D, x: number, y: number, t: number, cfg: { r0: number; r1: number; grow: number; w: number }, fieldAlpha: number): void {
+  private shockRing(ctx: CanvasRenderingContext2D, x: number, y: number, t: number, cfg: { r0: number; r1: number; grow: number; w: number }, fieldAlpha: number, color: string): void {
     const f = Math.min(1, t / cfg.grow)
     const fade = t > cfg.grow * 0.7 ? Math.max(0, 1 - (t - cfg.grow * 0.7) / (cfg.grow * 0.6)) : 1
     if (fade <= 0) return
     ctx.globalAlpha = fieldAlpha * fade
-    ctx.strokeStyle = PAL.white
+    ctx.strokeStyle = color
     ctx.lineWidth = cfg.w
     ctx.beginPath()
     ctx.arc(x, y, cfg.r0 + (cfg.r1 - cfg.r0) * f, 0, TAU)
     ctx.stroke()
     ctx.globalAlpha = 1
+  }
+
+  /** OVERCHARGE bed: rings leaving the station on a beat that quickens with
+   *  the level, one orbiting mote per level, and a gold frame at the screen
+   *  edges pulsing on the same beat. All under the objects. */
+  private drawOverchargeBed(ctx: CanvasRenderingContext2D, st: { x: number; y: number }, fieldAlpha: number): void {
+    const O = TUNING.overcharge
+    const lvl = this.oc
+    const hz = O.beatHz + O.beatHzPerLevel * (lvl - 1)
+    const beat = (this.timeNow * hz) % 1
+    ctx.save()
+    // beat rings — up to three alive, evenly staggered
+    const rings = Math.min(3, lvl)
+    ctx.strokeStyle = PAL.ore
+    ctx.shadowColor = 'rgba(255,226,63,0.8)'
+    ctx.shadowBlur = 8
+    for (let k = 0; k < rings; k++) {
+      const f = (beat + k / rings) % 1
+      ctx.globalAlpha = fieldAlpha * (1 - f) * (1 - f) * 0.5
+      ctx.lineWidth = 2.2 - 1.4 * f
+      ctx.beginPath()
+      ctx.arc(st.x, st.y, O.haloR0 + (O.haloR1 - O.haloR0) * f, 0, TAU)
+      ctx.stroke()
+    }
+    // motes — the level, countable
+    const spin = this.timeNow * (1.6 + 0.25 * lvl)
+    ctx.fillStyle = PAL.oreFacet
+    ctx.globalAlpha = fieldAlpha * 0.9
+    for (let k = 0; k < lvl; k++) {
+      const a = spin + (k / lvl) * TAU
+      ctx.beginPath()
+      ctx.arc(st.x + Math.cos(a) * O.orbitR, st.y + Math.sin(a) * O.orbitR, 2.2, 0, TAU)
+      ctx.fill()
+    }
+    ctx.shadowBlur = 0
+    // the frame — four soft gold strips, brightest on the beat
+    const pulse = settings.reduceMotion ? 0.8 : 0.55 + 0.45 * (1 - beat) * (1 - beat)
+    const a = Math.min(O.frameAlphaMax, O.frameAlpha + O.frameAlphaPerLevel * (lvl - 1)) * pulse * fieldAlpha
+    const w = this.worldW
+    const h = this.worldH
+    const D = O.frameDepth
+    const c0 = `rgba(255,226,63,${a.toFixed(3)})`
+    const c1 = 'rgba(255,226,63,0)'
+    ctx.globalAlpha = 1
+    let g = ctx.createLinearGradient(0, 0, 0, D)
+    g.addColorStop(0, c0); g.addColorStop(1, c1)
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, w, D)
+    g = ctx.createLinearGradient(0, h, 0, h - D)
+    g.addColorStop(0, c0); g.addColorStop(1, c1)
+    ctx.fillStyle = g
+    ctx.fillRect(0, h - D, w, D)
+    g = ctx.createLinearGradient(0, 0, D, 0)
+    g.addColorStop(0, c0); g.addColorStop(1, c1)
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, D, h)
+    g = ctx.createLinearGradient(w, 0, w - D, 0)
+    g.addColorStop(0, c0); g.addColorStop(1, c1)
+    ctx.fillStyle = g
+    ctx.fillRect(w - D, 0, D, h)
+    ctx.restore()
+  }
+
+  /** OVERCHARGE level-up: a fat gold ring to the edge of the screen, rays
+   *  shooting out of the station, and one gold wash across the tube. */
+  private drawOverchargeBurst(ctx: CanvasRenderingContext2D, st: { x: number; y: number }, fieldAlpha: number): void {
+    if (fx.overBurstT < 0) return
+    const O = TUNING.overcharge
+    const f = Math.min(1, fx.overBurstT / O.burstDur)
+    const e = 1 - (1 - f) * (1 - f) * (1 - f) // ease-out cubic
+    const reach = Math.max(this.worldW, this.worldH) * 0.85
+    ctx.save()
+    if (!settings.reduceMotion && f < 0.35) {
+      ctx.globalAlpha = O.washAlpha * (1 - f / 0.35) * fieldAlpha
+      ctx.fillStyle = PAL.ore
+      ctx.fillRect(-40, -40, this.worldW + 80, this.worldH + 80)
+    }
+    ctx.lineCap = 'round'
+    ctx.shadowColor = 'rgba(255,226,63,0.9)'
+    ctx.shadowBlur = 12
+    ctx.strokeStyle = PAL.ore
+    ctx.globalAlpha = fieldAlpha * (1 - f)
+    ctx.lineWidth = 5 - 3.5 * f
+    ctx.beginPath()
+    ctx.arc(st.x, st.y, 30 + reach * e, 0, TAU)
+    ctx.stroke()
+    // a second, white-hot ring just behind it
+    ctx.strokeStyle = PAL.oreFacet
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(st.x, st.y, 20 + reach * e * 0.72, 0, TAU)
+    ctx.stroke()
+    // rays
+    ctx.shadowBlur = 6
+    ctx.lineWidth = 1.6
+    const r0 = 60 + reach * e * 0.55
+    const len = 26 + 70 * (1 - f)
+    for (let k = 0; k < O.burstRays; k++) {
+      const a = (k / O.burstRays) * TAU + 0.13
+      const ca = Math.cos(a)
+      const sa = Math.sin(a)
+      ctx.beginPath()
+      ctx.moveTo(st.x + ca * r0, st.y + sa * r0)
+      ctx.lineTo(st.x + ca * (r0 + len), st.y + sa * (r0 + len))
+      ctx.stroke()
+    }
+    ctx.restore()
   }
 
   private drawFloats(ctx: CanvasRenderingContext2D): void {
@@ -699,11 +827,19 @@ export class Renderer {
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
     ctx.font = `${Math.round(62 * (1 + 0.08 * pulse))}px ${FONT_NUM}`
-    ctx.fillStyle = near || (game.best > 0 && shown > game.best) ? PAL.white : PAL.ink
-    // only the score blooms among type
-    ctx.shadowColor = 'rgba(174,185,196,0.8)'
-    ctx.shadowBlur = (near ? 12 : 6) + streakGlow
+    const hot = this.oc > 0
+    ctx.fillStyle = hot ? PAL.ore : near || (game.best > 0 && shown > game.best) ? PAL.white : PAL.ink
+    // only the score blooms among type — and under OVERCHARGE it runs gold,
+    // with the multiplier riding beside it
+    ctx.shadowColor = hot ? 'rgba(255,226,63,0.85)' : 'rgba(174,185,196,0.8)'
+    ctx.shadowBlur = (near ? 12 : 6) + streakGlow + (hot ? 6 : 0)
     ctx.fillText(String(shown), sx, sy)
+    if (hot) {
+      const wScore = ctx.measureText(String(shown)).width
+      ctx.font = `34px ${FONT_NUM}`
+      ctx.fillStyle = PAL.oreFacet
+      ctx.fillText('×' + Math.pow(2, this.oc), sx + wScore + 10, sy)
+    }
     ctx.shadowBlur = 0
     ctx.font = `11px ${FONT_LABEL}`
     if (game.challenge) {

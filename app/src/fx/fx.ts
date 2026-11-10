@@ -92,6 +92,10 @@ export const fx = {
   shieldReadyT: -1,
   /** F9 — station flinch offset (unit direction + clock; null idle). */
   flinch: null as { dx: number; dy: number; t: number } | null,
+  /** OVERCHARGE level mirror (main writes it each frame) — floats go gold. */
+  overLevel: 0,
+  /** OVERCHARGE level-up burst clock (-1 idle). */
+  overBurstT: -1,
   /** P1 — one-slot banner over the field (missions, ranks). */
   banner: null as { text: string; t: number; dur: number } | null
 }
@@ -116,7 +120,9 @@ export function initFx(): void {
     addTrauma(e.nearStation ? TUNING.trauma.smashNear : TUNING.trauma.smash)
     if (e.bothRocks) {
       // M1 — the float carries the real pay; chains earn the glow
-      spawnFloat(e.x, e.y - 30, '+' + e.value, e.chain > 0 ? PAL.white : PAL.ink, e.chain > 0)
+      // under OVERCHARGE every pay is gold and glowing — bonus mode
+      const hot = fx.overLevel > 0
+      spawnFloat(e.x, e.y - 30, '+' + e.value, hot ? PAL.ore : e.chain > 0 ? PAL.white : PAL.ink, hot || e.chain > 0)
       // F7 — a big smash burns into the phosphor for a beat
       fx.burns.push({ x: e.x, y: e.y, r: TUNING.burns.rBase + e.chain * TUNING.burns.rPerChain, t: 0 })
       if (fx.burns.length > TUNING.burns.cap) fx.burns.shift()
@@ -159,7 +165,7 @@ export function initFx(): void {
     fx.flares.push({ angle: e.angle, gap: e.gap, t: 0 })
     if (fx.flares.length > 3) fx.flares.shift()
     // M1 — the close call pays, and says so where it happened
-    spawnFloat(e.x, e.y, '+' + TUNING.score.nearMiss, PAL.rockLit, false)
+    spawnFloat(e.x, e.y, '+' + e.value, PAL.rockLit, false)
   })
 
   // M8 — the vein: edge shimmer + a one-line announcement
@@ -203,6 +209,19 @@ export function initFx(): void {
   })
   on('rankUp', e => {
     fx.banner = { text: 'RANK UP — ' + e.name, t: 0, dur: 3 }
+  })
+
+  // OVERCHARGE — the stack moved. Up is the game's biggest good moment:
+  // burst, shake, and the multiplier called out. Down says what it cost.
+  on('overcharge', e => {
+    const mult = Math.pow(2, e.level)
+    if (e.up) {
+      fx.overBurstT = 0
+      addTrauma(TUNING.overcharge.trauma)
+      fx.banner = { text: 'OVERCHARGE ×' + mult, t: 0, dur: 2.4 }
+    } else {
+      fx.banner = { text: e.level > 0 ? 'OVERCHARGE DOWN — ×' + mult : 'OVERCHARGE LOST', t: 0, dur: 2 }
+    }
   })
 
   on('surge', () => addTrauma(TUNING.trauma.surge))
@@ -252,6 +271,8 @@ export function clearFx(): void {
   fx.shieldReadyT = -1
   fx.flinch = null
   fx.banner = null
+  fx.overLevel = 0
+  fx.overBurstT = -1
 }
 
 export function spawnFloat(x: number, y: number, text: string, color: string, glow: boolean): void {
@@ -353,6 +374,10 @@ export function updateFx(dt: number): void {
   if (fx.flinch) {
     fx.flinch.t += dt
     if (fx.flinch.t > TUNING.flinch.dur) fx.flinch = null
+  }
+  if (fx.overBurstT >= 0) {
+    fx.overBurstT += dt
+    if (fx.overBurstT > TUNING.overcharge.burstDur) fx.overBurstT = -1
   }
   if (fx.banner) {
     fx.banner.t += dt
