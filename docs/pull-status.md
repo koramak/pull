@@ -1,6 +1,6 @@
 # PULL — Project Status (handoff)
 
-**Updated:** 2026-08-30 · **Live build:** https://koramak.github.io/pull/
+**Updated:** 2026-11-10 · **Live build:** https://koramak.github.io/pull/
 **Read this + `pull-build-instructions.md` before doing anything.** The
 instructions doc holds Zane's rulings (approvals/rejections per item ID);
 where it and the improvement report disagree, the instructions win.
@@ -112,6 +112,36 @@ the feel of this build is right, so upgrades get laser-focused:
   in the hidden pane `sim.width` is 0 until you call `sim.resize(393,852)`
   — objects cull instantly otherwise.)
 
+**2026-11-10 session — full audit + six bug fixes** (deployed at `135838d`).
+Whole codebase read; ~400 scripted bot runs against a local copy of the live
+build (recipe under Dev workflow). Bots are models, not thumbs.
+
+- **Fixed and deployed:** audio resumes from iOS `interrupted`; SOUND off
+  releases the silent media element; a new primary pointer adopts ownership
+  when a `pointerup` was lost; fragments draw from `sim.fragRng`, so the
+  spawn stream is identical for everyone on a seed (verified: 14/14 spawns
+  match across different play); a reload restores the live field + shield
+  cooldown and keeps a challenge unranked (verified); an app switch resumes
+  the tutorial as the tutorial, and tutorial runs are never snapshotted.
+  **Not device-verified:** the audio, stuck-touch and tutorial fixes.
+- **Audit numbers (pre-fix build, flat 40 cost):** idle dies ~20s; novice
+  bot ~50-60s median with only 30-53% reaching an upgrade; average ~150s;
+  skilled ~7 min; a 50ms-reaction bot survives 30 min. Smashes are 65-89%
+  of score and ~70% of scoring smashes are sibling fragments colliding in
+  their first 150ms. The build maxes at six purchases (~2.5 min), after
+  which the only plate is REPAIR. Chips are 23-39% of hull hits. No
+  parked-thumb strategy survives 30s.
+- **Zane's rulings this session (not yet built):** (a) skilled runs should
+  be 3-5 min — difficulty limits keep creeping and/or repair cost rises;
+  (b) 50%+ of players must reach an upgrade — bot test says a 20/30/40
+  rising cost gives novices ~78% reach, first choice ~25-30s; (c) chips
+  taking hull undermines skill — fix wanted, proposal pending his pick;
+  (d) his endgame idea: once fully upgraded, each reservoir fill stacks an
+  escalating score bonus — spec pending.
+- **Still open, no ruling:** sibling-cascade scoring/hit-stops; challenge
+  spawn positions still scale with viewport size; small cleanup (stale ship
+  comments, dead `hp`/`hitFlash`, unused `spawn` event).
+
 ## Parked / not built (deliberate rulings — do not build without Zane)
 
 M7 (teach release), all of section 6 (X1–X4: no mercy, no rubber-banding),
@@ -147,6 +177,14 @@ longer exist).
   `cd app && npm install && npm run typecheck && npm run build`; dev server
   `npm run dev`. Deploy from anywhere = push to `main` (Actions builds
   `app/dist` + copies `prototype/`). Verify the run goes green.
+- **Bot playtests on the Mac (no node needed):** curl the live `index.html`
+  + its `assets/*.js|css` into a scratch dir, `python3 -m http.server` it,
+  open `http://localhost:<port>/index.html?debug` in the in-app browser and
+  run a synchronous JS loop: `sim.reset(); station.reset(); game.phase='run'`
+  then `sim.frame(1/60, ptr, true)` with a bot choosing `ptr`. 30 sim-minutes
+  take ~0.4s, and the real koramak.github.io save data is never touched.
+  Private methods (`sim.bank`, `sim.pairHandler`, `sim.hullHit`) keep their
+  names in the bundle and can be wrapped for instrumentation.
 - **Playtesting headless:** serve `app/dist` (`python3 -m http.server`),
   open with Playwright (chromium at `/opt/pw-browsers/…` in CCR sandboxes),
   add `?debug` — `window.__pull` exposes `{sim, game, sampleDifficulty,
