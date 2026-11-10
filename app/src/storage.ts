@@ -205,8 +205,16 @@ export interface SavedRun {
   dead: number[]
   /** SHIELD track level 0-3 (absent in pre-shield saves — treat as 0). */
   shield?: number
+  /** Seconds left on the shield recharge (absent in older saves). */
+  shieldDownT?: number
   reservoir: number
   at: number
+  /** P2 — set when the interrupted run was a challenge: it stays unranked. */
+  challenge?: { target: number | null } | null
+  /** The live field, one row per object:
+   *  [kind, x, y, vx, vy, r, rot, rs, seed, touched, frag]. A reload hands
+   *  back the rocks you left — closing the tab is not a free clear. */
+  field?: number[][]
 }
 
 export function saveRun(r: SavedRun): void {

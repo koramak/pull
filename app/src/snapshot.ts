@@ -18,9 +18,43 @@ export function saveRun(sim: Sim): void {
     sections: st.sections,
     dead: st.dead.map((d, i) => (d ? i : -1)).filter(i => i >= 0),
     shield: st.shieldLevel,
+    shieldDownT: st.shieldDownT,
     reservoir: st.reservoir,
-    at: Date.now()
+    at: Date.now(),
+    challenge: game.challenge ? { target: game.challenge.target } : null,
+    field: saveField(sim)
   })
+}
+
+function saveField(sim: Sim): number[][] {
+  const rows: number[][] = []
+  for (let i = 0; i < sim.pool.count; i++) {
+    const o = sim.pool.objs[i]
+    rows.push([o.kind, o.x, o.y, o.vx, o.vy, o.r, o.rot, o.rs, o.seed, o.touched ? 1 : 0, o.frag ? 1 : 0])
+  }
+  return rows
+}
+
+function restoreField(sim: Sim, rows: unknown): void {
+  if (!Array.isArray(rows)) return
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length < 11) continue
+    let ok = true
+    for (let k = 0; k < 11; k++) {
+      if (typeof row[k] !== 'number' || !Number.isFinite(row[k])) { ok = false; break }
+    }
+    if (!ok) continue
+    const f = row as number[]
+    if (f[0] < 0 || f[0] > 5 || f[5] <= 0) continue // unknown kind / bad radius
+    const o = sim.pool.spawn()
+    if (!o) return
+    o.kind = Math.floor(f[0])
+    o.x = f[1]; o.y = f[2]; o.px = f[1]; o.py = f[2]
+    o.vx = f[3]; o.vy = f[4]
+    o.r = f[5]; o.rot = f[6]; o.rs = f[7]; o.seed = f[8]
+    o.touched = f[9] === 1
+    o.frag = f[10] === 1
+  }
 }
 
 export function loadSavedRun(maxAgeS: number): SavedRun | null {
@@ -39,7 +73,12 @@ export function restoreSnapshot(sim: Sim, saved: SavedRun): void {
     if (idx >= 0 && idx < st.sections) st.dead[idx] = true
   }
   st.reservoir = Math.min(st.reservoirCap, Math.max(0, saved.reservoir))
+  const down = saved.shieldDownT
+  if (shield > 0 && typeof down === 'number' && Number.isFinite(down) && down > 0) {
+    st.shieldDownT = Math.min(down, st.shieldRechargeTime())
+  }
   st.structureRev++
   sim.clearField()
+  restoreField(sim, saved.field)
   restoreRun(saved)
 }

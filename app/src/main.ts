@@ -54,10 +54,14 @@ document.addEventListener('visibilitychange', () => {
     return
   }
   if (game.phase === 'run' || game.phase === 'choice' || game.phase === 'firstrun') {
-    saveRun(sim)
+    // the tutorial resumes as the tutorial (it used to come back as a plain
+    // run and never get marked done), and is never snapshotted: a reload
+    // mid-tutorial just starts it over
+    const inTutorial = game.phase === 'firstrun' || (game.phase === 'choice' && choiceFrom === 'firstrun')
+    if (!inTutorial) saveRun(sim)
     releasePointer()
     upgrade.cancel()
-    pauseGame()
+    pauseGame(inTutorial ? 'firstrun' : 'run')
   }
 })
 
@@ -65,6 +69,9 @@ on('runStart', () => {
   sim.reset()
   // P2 — every run is seeded so any run can become a challenge link
   sim.rng = new SeededRNG(game.runSeed)
+  // breakage draws from its own stream, so the spawn sequence above is the
+  // same for everyone on this seed no matter what they smash
+  sim.fragRng = new SeededRNG((game.runSeed ^ 0x9e3779b9) >>> 0)
   intensity.reset()
   upgrade.cancel()
   renderer.resetRunVisuals()

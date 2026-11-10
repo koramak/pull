@@ -26,7 +26,8 @@ let sfxBus: GainNode | null = null
 /** Priority bus — hull hits and the collapse bypass the duck. */
 let priorityBus: GainNode | null = null
 let noiseBuf: AudioBuffer | null = null
-let mediaUnlocked = false
+/** S5 — the silent looped element that holds the iOS media channel. */
+let mediaEl: HTMLAudioElement | null = null
 
 // streak state (S2)
 let bankStreak = 0
@@ -50,7 +51,9 @@ function now(): number {
 /** Call from a user gesture handler; safe to call repeatedly. */
 export function initAudio(): void {
   if (ctx) {
-    if (ctx.state === 'suspended') void ctx.resume()
+    // not just 'suspended': iOS parks the context in 'interrupted' after a
+    // call, Siri or an app switch, and only a resume() brings it back
+    if (ctx.state !== 'running') void ctx.resume().catch(() => { /* closed */ })
     return
   }
   try {
@@ -85,16 +88,27 @@ export function initAudio(): void {
 // Playing a silent looped element promotes the page onto the media channel so
 // the game sounds with the switch on; the in-game SOUND toggle is the way out.
 function unlockMediaChannel(): void {
-  if (mediaUnlocked) return
-  mediaUnlocked = true
+  if (!settings.sound) return // sound off never takes the media channel
   try {
-    const el = document.createElement('audio')
-    // 8-sample silent WAV
-    el.src = 'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAAAAAA'
-    el.loop = true
-    el.volume = 0.01
-    void el.play().catch(() => { /* fine — audio stays on the ringer channel */ })
+    if (!mediaEl) {
+      mediaEl = document.createElement('audio')
+      // 8-sample silent WAV
+      mediaEl.src = 'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAAAAAA'
+      mediaEl.loop = true
+      mediaEl.volume = 0.01
+    }
+    void mediaEl.play().catch(() => { /* fine — audio stays on the ringer channel */ })
   } catch { /* ignore */ }
+}
+
+/** Call when the SOUND setting flips (from a gesture). Off releases the
+ *  media channel — the player's own music gets the phone back; on takes it. */
+export function applySoundSetting(): void {
+  if (settings.sound) {
+    unlockMediaChannel()
+  } else if (mediaEl) {
+    try { mediaEl.pause() } catch { /* ignore */ }
+  }
 }
 
 export function suspendAudio(): void {
@@ -102,7 +116,8 @@ export function suspendAudio(): void {
 }
 
 export function resumeAudio(): void {
-  if (ctx && ctx.state === 'suspended') void ctx.resume()
+  // 'suspended' or iOS's 'interrupted' — anything short of running
+  if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => { /* closed */ })
 }
 
 /** S4 — true if a minor sound may play right now (and reserves a voice). */

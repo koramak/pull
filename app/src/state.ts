@@ -38,6 +38,8 @@ export const game = {
   phaseT: 0,        // seconds since the current phase began
   idleT: 0,         // seconds since the last pointer activity (title/result)
   pausedAt: 0,      // wall-clock ms when PAUSED began
+  /** Where RESUME returns to — the tutorial survives an app switch. */
+  pausedFrom: 'run' as 'run' | 'firstrun',
 
   settingsFrom: 'title' as 'title' | 'result',
 
@@ -104,7 +106,10 @@ export function restoreRun(saved: SavedRun): void {
   // a restored run's original seed is gone; give it a fresh identity so a
   // share from its death still produces a valid (if unreplayable) link
   game.runSeed = (Math.random() * 0xffffffff) >>> 0
-  game.challenge = null
+  // P2 — a challenge stays a challenge across a reload: never ranked
+  const ch = saved.challenge
+  game.challenge = ch ? { target: typeof ch.target === 'number' ? ch.target : null } : null
+  game.pausedFrom = 'run'
   setPhase('paused')
   game.pausedAt = Date.now()
 }
@@ -145,8 +150,9 @@ export function finishCollapse(sectionsAtDeath: number): void {
   setPhase('result')
 }
 
-export function pauseGame(): void {
+export function pauseGame(from: 'run' | 'firstrun' = 'run'): void {
   if (game.phase !== 'run' && game.phase !== 'choice' && game.phase !== 'firstrun') return
+  game.pausedFrom = from
   setPhase('paused')
   game.pausedAt = Date.now()
   emit('pause', undefined)
@@ -159,7 +165,7 @@ export function resumeGame(): 'run' | 'title' {
     setPhase('title')
     return 'title'
   }
-  setPhase('run')
+  setPhase(game.pausedFrom)
   emit('resume', undefined)
   return 'run'
 }

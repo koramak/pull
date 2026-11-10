@@ -40,7 +40,12 @@ export class Sim {
   spawner = new Spawner()
   grid = new UniformGrid()
   station = new Station()
+  /** The spawn stream: what arrives, where, and when (spawner + veins).
+   *  Nothing the player does may draw from it, or two people on the same
+   *  challenge seed stop seeing the same run at the first smash. */
   rng: RNG
+  /** The fragment stream: how things break. Player-driven, so separate. */
+  fragRng: RNG
 
   width = 1   // world units
   height = 1
@@ -69,6 +74,7 @@ export class Sim {
 
   constructor(rng: RNG) {
     this.rng = rng
+    this.fragRng = rng
     this.pool = new ObjectPool(TUNING.objects.maxCount)
   }
 
@@ -307,16 +313,17 @@ export class Sim {
     const cfg = recipe.kind === MEDIUM ? R.medium : recipe.kind === SHARD ? R.shard : R.chip
     const extra = o.kind === RUBBLE ? 1 : 0 // rubble: 3 shards + a chip
     const total = recipe.n + extra
+    const rng = this.fragRng
     for (let k = 0; k < total; k++) {
       const f = this.pool.spawn()
       if (!f) return
       const isExtraChip = k >= recipe.n
       const c = isExtraChip ? R.chip : cfg
       const kind = isExtraChip ? CHIP : recipe.kind
-      const ang = this.rng.next() * Math.PI * 2
-      const spread = TUNING.rocks.splitSpread * (0.6 + this.rng.next() * 0.7)
+      const ang = rng.next() * Math.PI * 2
+      const spread = TUNING.rocks.splitSpread * (0.6 + rng.next() * 0.7)
       f.kind = kind
-      f.r = this.rng.range(c.rMin, c.rMax)
+      f.r = rng.range(c.rMin, c.rMax)
       f.hp = c.hp
       f.x = o.x + Math.cos(ang) * o.r * 0.4
       f.y = o.y + Math.sin(ang) * o.r * 0.4
@@ -324,10 +331,10 @@ export class Sim {
       f.py = f.y
       f.vx = o.vx + Math.cos(ang) * spread
       f.vy = o.vy + Math.sin(ang) * spread
-      f.rot = this.rng.next() * 7
+      f.rot = rng.next() * 7
       // 4–5 turns/s — the only fast rotation the game allows
-      f.rs = this.rng.range(TUNING.rocks.fragSpinMin, TUNING.rocks.fragSpinMax) * (this.rng.next() < 0.5 ? -1 : 1)
-      f.seed = this.rng.next() * 1000
+      f.rs = rng.range(TUNING.rocks.fragSpinMin, TUNING.rocks.fragSpinMax) * (rng.next() < 0.5 ? -1 : 1)
+      f.seed = rng.next() * 1000
       f.touched = o.touched
       f.frag = true // a broken piece — the shield's whole jurisdiction
     }

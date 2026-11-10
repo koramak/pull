@@ -3,7 +3,7 @@
 // touch + mouse. During RUN the pointer IS the well — zero-latency world
 // coordinates the sim reads directly.
 
-import { initAudio } from './audio'
+import { initAudio, applySoundSetting } from './audio'
 import { TUNING } from './config'
 import { game, startRun, resumeGame, openSettings, closeSettings, requestCollapseSkip } from './state'
 import { settings, saveSettings, resetRecords, loadDeaths } from './storage'
@@ -26,7 +26,16 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
   canvas.addEventListener('pointerdown', e => {
     e.preventDefault()
     initAudio()
-    if (ownerId !== null) return // second finger — ignored
+    if (ownerId !== null) {
+      if (!e.isPrimary) return // second finger — ignored
+      // A new PRIMARY pointer while one is still "held" means the old one's
+      // release never reached us (iOS system gestures can swallow pointerup).
+      // Without this the well stays on and every later touch is ignored.
+      pointer.active = false
+      inputState.resetHolding = false
+      ui.playPressed = false
+      if (game.phase === 'choice') upgrade.onRelease()
+    }
     ownerId = e.pointerId
     try { canvas.setPointerCapture(e.pointerId) } catch { /* not critical */ }
     inputState.anyPointerDown = true
@@ -64,7 +73,7 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
         const rows = settingsRows(l)
         for (const row of rows) {
           if (p.y < row.y || p.y > row.y + 56) continue
-          if (row.id === 'sound') { settings.sound = !settings.sound; saveSettings() }
+          if (row.id === 'sound') { settings.sound = !settings.sound; saveSettings(); applySoundSetting() }
           else if (row.id === 'haptics') { settings.haptics = !settings.haptics; saveSettings() }
           else if (row.id === 'reduceMotion') {
             settings.reduceMotion = !settings.reduceMotion
