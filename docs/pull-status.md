@@ -1,6 +1,6 @@
 # PULL — Project Status (handoff)
 
-**Updated:** 2026-11-10 · **Live build:** https://koramak.github.io/pull/
+**Updated:** 2026-11-13 · **Live build:** https://koramak.github.io/pull/
 **Read this + `pull-build-instructions.md` before doing anything.** The
 instructions doc holds Zane's rulings (approvals/rejections per item ID);
 where it and the improvement report disagree, the instructions win.
@@ -170,6 +170,23 @@ bundle (unit checks + 300 bot runs on the real rules):
   played it yet**; expect tuning of the `overcharge` block after he does.
 - **Proposed, awaiting ruling:** two more trees (MAGNET, PULSE) offered as
   a draft of three plates, then named fusions when two trees are maxed.
+
+**2026-11-13 — Zane's first playtest notes on the new build** (deployed at
+`d073078`, verified on the deployed bundle through the real choice flow):
+
+- **The wipe spares ore** (ruling: upgrading must never cost gold on
+  screen). `clearPulse` skips ore, and rocks it throws are tagged `wiped`
+  and pass through ore instead of smashing it.
+- **The wipe is instant** (ruling: NO action between choosing and the
+  wipe). It fires on the frame the run unfreezes — or the frame a single
+  lit plate is auto-bought — not after lock + surge (was ~0.7s of live
+  play). Checked: rocks 27-33px from the hull at the freeze are already
+  outbound at 560px/s on the resume frame; no hull lost.
+- **PAUSED has a speaker icon** (bottom-right, `muteButton`) toggling sound.
+- **The title shows `BUILD <n> · <sha>`** (bottom-left). n = commit count on
+  main, stamped by `vite.config.ts`; the workflow uses `fetch-depth: 0` so
+  the count is real. Every push bumps it, docs commits included — quote the
+  number in the done message so Zane can match it.
 
 ## Parked / not built (deliberate rulings — do not build without Zane)
 
