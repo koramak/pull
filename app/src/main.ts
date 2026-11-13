@@ -121,8 +121,9 @@ else setPhase('title')
 // Choice bookkeeping: where to return after the freeze (run vs firstrun).
 let choiceFrom: 'run' | 'firstrun' = 'run'
 let choiceArm = 0
-// N4 — the clear pulse fires the moment the surge lands (surge → build).
-let prevUpgradeStage = upgrade.stage
+// N4 — the clear pulse fires on the very frame the run unfreezes (or, with
+// one lit plate, the frame it is bought): not one sim step runs between
+// choosing an upgrade and the wipe, so nothing can hit in the gap.
 
 // N1/L5 — title attract field: slow drifters aimed loosely across mid-screen,
 // and every few seconds a ghost finger presses down and everything bends
@@ -195,7 +196,9 @@ function frame(now: number): void {
       choiceArm += dt
       if (choiceArm >= TUNING.choice.enterDelay) {
         // one lit plate is not a choice — buy it without stopping the game
-        if (!upgrade.autoPick(sim)) {
+        if (upgrade.autoPick(sim)) {
+          sim.clearPulse() // bought on the spot — wipe on the spot
+        } else {
           choiceFrom = phase
           upgrade.open(sim)
           setPhase('choice')
@@ -221,14 +224,13 @@ function frame(now: number): void {
 
   // The upgrade timeline runs through choice AND the surge/build that play
   // over live gameplay after the run resumes.
-  if (prevUpgradeStage === 'surge' && upgrade.stage !== 'surge') {
-    sim.clearPulse() // N4 — the build's shockwave clears the field
-  }
-  prevUpgradeStage = upgrade.stage
   if (upgrade.stage !== 'idle' && phase !== 'paused') {
     const result = upgrade.update(dt, sim)
     if (result === 'resume' && game.phase === 'choice') {
-      // RUN, 480ms after the flick — surge and build play over the live field
+      // RUN, 480ms after the flick — surge and build play over the live field.
+      // The wipe goes first: the field was frozen until this frame, and the
+      // next sim step already has every rock heading out.
+      sim.clearPulse()
       if (choiceFrom === 'firstrun') {
         firstRun.finish()
         setPhase('run')

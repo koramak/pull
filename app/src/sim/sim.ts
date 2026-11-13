@@ -239,6 +239,9 @@ export class Sim {
     const a = objs[i]
     const b = objs[j]
     if (a.dead || b.dead) return
+    // a rock the wipe is throwing out never touches ore — no "ORE LOST"
+    // for upgrading with gold on the screen
+    if ((a.kind === ORE && b.wiped) || (b.kind === ORE && a.wiped)) return
     const dx = b.x - a.x
     const dy = b.y - a.y
     const rr = a.r + b.r
@@ -378,19 +381,22 @@ export class Sim {
     }
   }
 
-  /** N4 — the post-upgrade shockwave: everything is shoved offscreen, with
-   *  no deflection credit — the break itself is the reward. */
+  /** N4 — the post-upgrade shockwave: every ROCK is shoved offscreen, with
+   *  no deflection credit — the break itself is the reward. Ore is left
+   *  exactly where it was: upgrading must never cost you gold on screen. */
   clearPulse(): void {
     const st = this.station
     const speed = TUNING.clearPulse.speed
     for (let i = 0; i < this.pool.count; i++) {
       const o = this.pool.objs[i]
+      if (o.kind === ORE) continue
       const dx = o.x - st.x
       const dy = o.y - st.y
       const d = Math.hypot(dx, dy) || 1
       o.vx = (dx / d) * speed
       o.vy = (dy / d) * speed
       o.touched = false
+      o.wiped = true
       o.missCredited = true // no near-miss credit on the way out either
     }
     emit('clearPulse', undefined)

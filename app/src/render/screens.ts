@@ -13,6 +13,9 @@ import { PAL, FONT_NUM, FONT_LABEL, rgba } from './palette'
 
 const TAU = Math.PI * 2
 
+/** Stamped in by the build (vite.config.ts): "BUILD <commit count> · <sha>". */
+declare const __BUILD__: string
+
 /** Transient UI state the input layer writes and the renderer reads. */
 export const ui = {
   playPressed: false,
@@ -46,6 +49,11 @@ export function doneButton(l: Layout): { x: number; y: number; r: number } {
 
 export function gearButton(l: Layout): { x: number; y: number; r: number } {
   return { x: l.w - 43, y: l.h - 62, r: 26 }
+}
+
+/** The mute toggle on the PAUSED screen — same corner as the gear. */
+export function muteButton(l: Layout): { x: number; y: number; r: number } {
+  return { x: l.w - 43, y: l.h - 62, r: 28 }
 }
 
 /** P2 — the challenge-a-friend text button on the result screen. */
@@ -196,6 +204,15 @@ export function drawTitle(ctx: CanvasRenderingContext2D, l: Layout, t: number): 
   }
 
   gear(ctx, l)
+
+  // which build is this? — always answerable from the first screen
+  ctx.save()
+  ctx.fillStyle = PAL.label
+  ctx.font = `10px ${FONT_LABEL}`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText(typeof __BUILD__ === 'string' ? __BUILD__ : 'DEV BUILD', 22, l.h - 58)
+  ctx.restore()
 }
 
 /** The asteroid-styled PLAY target: the monolith outline, doubled, with the
@@ -241,6 +258,44 @@ function poly(g: CanvasRenderingContext2D, pts: number[], close: boolean): void 
 export function drawPaused(ctx: CanvasRenderingContext2D, l: Layout): void {
   const b = playButton(l)
   circleButton(ctx, b.x, b.y, b.r, 'RESUME', 15, 3)
+  speaker(ctx, muteButton(l), settings.sound)
+}
+
+/** A speaker: two sound waves when on, a cross when muted. */
+function speaker(ctx: CanvasRenderingContext2D, b: { x: number; y: number }, on: boolean): void {
+  ctx.save()
+  ctx.translate(b.x - 3, b.y)
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = on ? PAL.station : PAL.labelBright
+  ctx.globalAlpha = on ? 0.9 : 0.75
+  ctx.lineWidth = 1.6
+  // the cone
+  ctx.beginPath()
+  ctx.moveTo(-9, -3.5)
+  ctx.lineTo(-4.5, -3.5)
+  ctx.lineTo(1, -8.5)
+  ctx.lineTo(1, 8.5)
+  ctx.lineTo(-4.5, 3.5)
+  ctx.lineTo(-9, 3.5)
+  ctx.closePath()
+  ctx.stroke()
+  if (on) {
+    ctx.beginPath()
+    ctx.arc(2, 0, 5, -0.75, 0.75)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(2, 0, 9.5, -0.75, 0.75)
+    ctx.stroke()
+  } else {
+    ctx.beginPath()
+    ctx.moveTo(6, -4.5)
+    ctx.lineTo(13, 4.5)
+    ctx.moveTo(13, -4.5)
+    ctx.lineTo(6, 4.5)
+    ctx.stroke()
+  }
+  ctx.restore()
 }
 
 // P5 — per-entry picks, cached for the life of one result screen.

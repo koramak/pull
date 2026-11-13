@@ -10,7 +10,7 @@ import { settings, saveSettings, resetRecords, loadDeaths } from './storage'
 import { upgrade } from './upgrade'
 import type { PointerState } from './sim/sim'
 import type { Renderer } from './render/renderer'
-import { ui, playButton, titlePlayButton, doneButton, gearButton, shareButton, settingsRows, hitCircle, hitRect } from './render/screens'
+import { ui, playButton, titlePlayButton, doneButton, gearButton, muteButton, shareButton, settingsRows, hitCircle, hitRect } from './render/screens'
 
 export const pointer: PointerState = { active: false, x: 0, y: 0 }
 
@@ -88,7 +88,13 @@ export function initInput(canvas: HTMLCanvasElement, renderer: Renderer): void {
         break
       }
       case 'paused': {
-        if (hitCircle(p.x, p.y, playButton(l))) resumeGame()
+        if (hitCircle(p.x, p.y, playButton(l))) {
+          resumeGame()
+        } else if (hitCircle(p.x, p.y, muteButton(l))) {
+          settings.sound = !settings.sound
+          saveSettings()
+          applySoundSetting()
+        }
         break
       }
       case 'choice': {
